@@ -1,0 +1,6 @@
+/usr/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "CodeBlocks - Unix Makefiles" /home/mic-730ai/fruitspec/JAI_Acquisition
+-- eBus include dir found: /opt/jai/ebus_sdk/linux-aarch64-arm/include
+-- A library with BLAS API found.
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/mic-730ai/fruitspec/JAI_Acquisition/cmake-build-debug
