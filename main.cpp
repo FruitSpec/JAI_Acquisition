@@ -60,17 +60,22 @@ float avg_coloring = 0;
 int frame_count = 0;
 PvDisplayWndMap mDisplays;
 PvString mSource;
-string SelectedDrive = "F", FPS_string;
-int FRAME_TO_SAVE = 0, FPS = 30;
+int FPS = 30;
 int64_t width, height;
 Camera zed;
+TickMeter t0;
 
+typedef struct
+{
+    cv::Mat frame;
+    int BlockID;
+} EnumeratedFrame;
 
 typedef struct
 {
     PvStream* aStream;
     int StreamIndex;
-    queue<cv::Mat> Frames;
+    queue<EnumeratedFrame*> Frames;
 } StreamInfo;
 
 
@@ -126,7 +131,6 @@ int main()
 
     PV_SAMPLE_INIT();
 
-    cout << "PvStreamSample:" << endl << endl;
 //    cout << "Please enter Frame Rate:" << endl;
 //    cin >> FPS_string;
 //    FPS = stoi(FPS_string);
@@ -161,7 +165,7 @@ int main()
                 PvGenCommand *lStart = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStart"));
                 PvGenCommand *lStop = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStop"));
 
-                queue<cv::Mat> *Frames[3] = {&(MyStreamInfos[0]->Frames), &(MyStreamInfos[1]->Frames),
+                queue<EnumeratedFrame*> *Frames[3] = {&(MyStreamInfos[0]->Frames), &(MyStreamInfos[1]->Frames),
                                          &(MyStreamInfos[2]->Frames)};
                 lDevice->StreamEnable();
                 int file_index = MP4CreateFirstTime(height, width);
@@ -180,7 +184,7 @@ int main()
                 }
 
                 // Enable video recording
-                sprintf(zed_filename, "/media/mic-730ai/Extreme Pro/temp/ZED_%d.svo", file_index);
+                sprintf(zed_filename, "/home/mic-730ai/Counter/ZED_%d.svo", file_index);
                 err = zed.enableRecording(RecordingParameters(zed_filename, SVO_COMPRESSION_MODE::H265));
                 if (err != ERROR_CODE::SUCCESS) {
                     std::cout << toString(err) << std::endl;
@@ -189,14 +193,14 @@ int main()
 
                 lStart->Execute();
                 cout << "Enabling streaming and sending AcquisitionStart command." << endl;
+                t0.start();
                 thread zed_t(ZedThread, file_index);
                 thread jai_t1(GrabThread, (void *) MyStreamInfos[0]);
                 thread jai_t2(GrabThread, (void *) MyStreamInfos[1]);
                 thread jai_t3(GrabThread, (void *) MyStreamInfos[2]);
                 thread merge_t(MergeThread, (void *) Frames);
 
-                cout << "Press Enter to terminate" << endl;
-
+                cout << "Press Enter to terminate acquisition" << endl;
                 cin.get();
 
                 _abort = true;
@@ -381,22 +385,31 @@ void GrabThread(void* _StreamInfo)
                 // We now have a valid buffer. This is where you would typically process the buffer.
 
                 CurrentBlockID = lBuffer->GetBlockID();
-                if (CurrentBlockID != PrevBlockID + 1 and PrevBlockID != 0)
-                    cout << "STREAM " << StreamIndex << " MISSED BLOCK. OLD: " << PrevBlockID <<
-                    ", NEW: " << CurrentBlockID << endl;
-                PrevBlockID = CurrentBlockID;
+//                if (CurrentBlockID != PrevBlockID + 1 and PrevBlockID != 0)
+//                    cout << "STREAM " << StreamIndex << " MISSED BLOCK. OLD: " << PrevBlockID <<
+//                    ", NEW: " << CurrentBlockID << endl;
+//                PrevBlockID = CurrentBlockID;
                 height = lBuffer->GetImage()->GetHeight(), width = lBuffer->GetImage()->GetWidth();
                 cv::Mat frame(height, width, CV_8U, lBuffer->GetImage()->GetDataPointer());
+                lStream->QueueBuffer(lBuffer);
+                EnumeratedFrame* curr_frame = new EnumeratedFrame;
+                curr_frame->frame = frame;
+                curr_frame->BlockID = CurrentBlockID;
                 pthread_mutex_lock(&mtx);
-                MyStreamInfo->Frames.push(frame);
+//                if (StreamIndex == 0) {
+//                    t0.stop();
+//                    cout << CurrentBlockID << " AFTER " << t0.getTimeMilli() << endl;
+//                    t0.start();
+//                }
+                MyStreamInfo->Frames.push(curr_frame);
                 pthread_cond_signal(&MergeFramesEvent[StreamIndex]);
                 pthread_mutex_unlock(&mtx);
             }
             else{
-                cout << StreamIndex << ": OPR - FAILURE" << endl;
+                lStream->QueueBuffer(lBuffer);
+//                cout << StreamIndex << ": OPR - FAILURE" << endl;
             }
             // Re-queue the buffer in the stream object
-            lStream->QueueBuffer(lBuffer);
         }
         else
         {
@@ -407,6 +420,7 @@ void GrabThread(void* _StreamInfo)
 //        pthread_cond_signal(&MergeFramesEvent[StreamIndex]);
         // SetEvent(MergeFramesEvent[StreamIndex]); // signals the MergeThread that the output from current stream is ready
     }
+    cout << StreamIndex << ": Acquisition end with " << CurrentBlockID << endl;
 }
 
 int MP4CreateFirstTime(int height, int width) {
@@ -414,15 +428,17 @@ int MP4CreateFirstTime(int height, int width) {
     {
         int i = 0;
         char filename[100];
-        cv::String cuda_filename;
         struct stat buffer;
         do {
             i++;
-            sprintf(filename, "/media/mic-730ai/Extreme Pro/temp/Result_FSI_%d.mkv", i);
+            sprintf(filename, "/home/mic-730ai/Counter/Result_FSI_%d.mkv", i);
             // sprintf(filename, "%s:\\Temp\\Result_FSI_%d.mkv", SelectedDrive.c_str(), i);
         } while (stat(filename, &buffer) == 0);
 
-        mp4_FSI = VideoWriter(filename, VideoWriter::fourcc('h', '2', '6', '4'), FPS, cv::Size(width, height), true);
+//        mp4_FSI = VideoWriter(filename, VideoWriter::fourcc('h', '2', '6', '4'), FPS, cv::Size(width, height), true);
+        string gstreamer = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=")
+                + filename;
+        mp4_FSI.open(gstreamer, 0, FPS, cv::Size(width, height));
         /*
         do {
             sprintf(filename, "%s:\\Temp\\Result_RED_%d.mkv", SelectedDrive.c_str(), i);
@@ -440,7 +456,8 @@ int MP4CreateFirstTime(int height, int width) {
 }
 
 void MergeThread(void* _Frames) {
-    queue<cv::Mat>** FramesQueue = (queue<cv::Mat> **)_Frames;
+    queue<EnumeratedFrame*>** FramesQueue = (queue<EnumeratedFrame*> **)_Frames;
+    EnumeratedFrame* e_frames[3];
     cv::Mat Frames[3], res;
     cuda::GpuMat cudaFSI;
     std::vector<GpuMat> cudaFrames(3);
@@ -451,12 +468,14 @@ void MergeThread(void* _Frames) {
     char filename[100];
     struct timespec max_wait = {0, 0};
 
-    pthread_cond_broadcast(&GrabEvent);
     cout << "MERGE THREAD START" << endl;
+    sleep(1);
+    pthread_cond_broadcast(&GrabEvent);
     for (CurrentBlockID = 1; !_abort; CurrentBlockID++)
     {
-        TickMeter t;
+        int fnum;
         for (int i = 0; i < 3; i++) {
+            e_frames[i] = new EnumeratedFrame;
             pthread_mutex_lock(&mtx);
             while ((*(FramesQueue[i])).empty() and !_abort) {
                 clock_gettime(CLOCK_REALTIME, &max_wait);
@@ -465,7 +484,12 @@ void MergeThread(void* _Frames) {
             }
             if (_abort)
                 break;
-            Frames[i] = (*(FramesQueue[i])).front();
+            e_frames[i] = (*(FramesQueue[i])).front();
+            Frames[i] = e_frames[i]->frame;
+            fnum = e_frames[i]->BlockID;
+            t0.stop();
+//            cout << "STREAM " << i << " POP " << fnum <<" AFTER " << t0.getTimeMilli() << endl;
+            t0.start();
             (*(FramesQueue[i])).pop();
             pthread_mutex_unlock(&mtx);
         }
@@ -474,7 +498,6 @@ void MergeThread(void* _Frames) {
         cv::Mat frame_BGR, res_FSI, blue, red;
         // the actual bayer format we use is RGGB but OpenCV reffers to it as BayerBG - https://github.com/opencv/opencv/issues/19629
 
-        t.start();
         cudaFrames[0].upload(Frames[0]); // channel 0 = BayerBG8
         cudaFrames[1].upload(Frames[2]); // channel 2 = 975nm -> Green
         cudaFrames[2].upload(Frames[1]); // channel 1 = 800nm -> Red
@@ -495,12 +518,16 @@ void MergeThread(void* _Frames) {
 //        cv::cuda::merge(cudaLAB_equalized, cudaFSI_LAB);
 //        cv::cuda::cvtColor(cudaFSI_LAB, cudaFSI, COLOR_Lab2BGR);
         cudaFSI.download(res_FSI);
-        t.stop();
         // cudaBGR[2].download(red);
         frame_count++;
         if (frame_count % (FPS * 30) == 0) cout << endl << frame_count / (FPS * 60.0) << " minutes of video written" << endl << endl;
 
+        TickMeter t;
+//        cout << "WRITE START " << fnum << endl;
+        t.start();
         mp4_FSI.write(res_FSI);
+        t.stop();
+//        cout << "WRITE END " << fnum << " - " << t.getTimeMilli() << endl;
         // mp4_RED.write(red);
         elapsed = t.getTimeMilli();
         avg_coloring += elapsed;

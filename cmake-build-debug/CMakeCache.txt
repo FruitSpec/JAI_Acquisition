@@ -379,7 +379,7 @@ NodeMapData_gcc421_v3_0_LIBRARY:FILEPATH=NodeMapData_gcc421_v3_0_LIBRARY-NOTFOUN
 OpenCV_BACKWARD_COMPA:BOOL=OFF
 
 //The directory containing a CMake configuration file for OpenCV.
-OpenCV_DIR:PATH=/usr/local/lib/cmake/opencv4
+OpenCV_DIR:PATH=/usr/lib/aarch64-linux-gnu/cmake/opencv4
 
 OpenCV_FOUND:BOOL=true
 
@@ -733,7 +733,7 @@ Ebus_INCLUDE_DIR-ADVANCED:INTERNAL=0
 //Details about finding CUDA
 FIND_PACKAGE_MESSAGE_DETAILS_CUDA:INTERNAL=[/usr/local/cuda-10.2][/usr/local/cuda-10.2/bin/nvcc][/usr/local/cuda-10.2/include][/usr/local/cuda-10.2/lib64/libcudart.so][v10.2(10.2)]
 //Details about finding OpenCV
-FIND_PACKAGE_MESSAGE_DETAILS_OpenCV:INTERNAL=[/usr/local][v4.6.0()]
+FIND_PACKAGE_MESSAGE_DETAILS_OpenCV:INTERNAL=[/usr][v4.6.0()]
 //Details about finding Threads
 FIND_PACKAGE_MESSAGE_DETAILS_Threads:INTERNAL=[TRUE][v()]
 //Details about finding eBus

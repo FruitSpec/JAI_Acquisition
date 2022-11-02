@@ -5,7 +5,7 @@
 		<Option title="JAI_Acquisition"/>
 		<Option makefile_is_custom="1"/>
 		<Option compiler="gcc"/>
-		<Option virtualFolders="CMake Files\;CMake Files\..\;CMake Files\..\..\;CMake Files\..\..\..\;CMake Files\..\..\..\..\;CMake Files\..\..\..\..\usr\;CMake Files\..\..\..\..\usr\local\;CMake Files\..\..\..\..\usr\local\lib\;CMake Files\..\..\..\..\usr\local\lib\cmake\;CMake Files\..\..\..\..\usr\local\lib\cmake\opencv4\;CMake Files\..\..\..\..\usr\local\zed\;"/>
+		<Option virtualFolders="CMake Files\;CMake Files\..\;CMake Files\..\..\;CMake Files\..\..\..\;CMake Files\..\..\..\..\;CMake Files\..\..\..\..\usr\;CMake Files\..\..\..\..\usr\lib\;CMake Files\..\..\..\..\usr\lib\aarch64-linux-gnu\;CMake Files\..\..\..\..\usr\lib\aarch64-linux-gnu\cmake\;CMake Files\..\..\..\..\usr\lib\aarch64-linux-gnu\cmake\opencv4\;CMake Files\..\..\..\..\usr\local\;CMake Files\..\..\..\..\usr\local\zed\;"/>
 		<Build>
 			<Target title="all">
 				<Option working_dir="/home/mic-730ai/fruitspec/JAI_Acquisition/cmake-build-debug"/>
@@ -36,7 +36,7 @@
 				<Compiler>
 					<Add option="-D_UNIX_=1"/>
 					<Add option="-D_DEBUG"/>
-					<Add directory="/usr/local/include/opencv4"/>
+					<Add directory="/usr/include/opencv4"/>
 					<Add directory="/opt/jai/ebus_sdk/linux-aarch64-arm/include"/>
 					<Add directory="/usr/local/cuda-10.2/include"/>
 					<Add directory="/usr/local/zed/include"/>
@@ -65,7 +65,7 @@
 				<Compiler>
 					<Add option="-D_UNIX_=1"/>
 					<Add option="-D_DEBUG"/>
-					<Add directory="/usr/local/include/opencv4"/>
+					<Add directory="/usr/include/opencv4"/>
 					<Add directory="/opt/jai/ebus_sdk/linux-aarch64-arm/include"/>
 					<Add directory="/usr/local/cuda-10.2/include"/>
 					<Add directory="/usr/local/zed/include"/>
@@ -102,17 +102,17 @@
 		<Unit filename="/home/mic-730ai/fruitspec/JAI_Acquisition/CMakeLists.txt">
 			<Option virtualFolder="CMake Files\"/>
 		</Unit>
-		<Unit filename="/home/mic-730ai/fruitspec/JAI_Acquisition/../../../../usr/local/lib/cmake/opencv4/OpenCVConfig-version.cmake">
-			<Option virtualFolder="CMake Files\..\..\..\..\usr\local\lib\cmake\opencv4\"/>
+		<Unit filename="/home/mic-730ai/fruitspec/JAI_Acquisition/../../../../usr/lib/aarch64-linux-gnu/cmake/opencv4/OpenCVConfig-version.cmake">
+			<Option virtualFolder="CMake Files\..\..\..\..\usr\lib\aarch64-linux-gnu\cmake\opencv4\"/>
 		</Unit>
-		<Unit filename="/home/mic-730ai/fruitspec/JAI_Acquisition/../../../../usr/local/lib/cmake/opencv4/OpenCVConfig.cmake">
-			<Option virtualFolder="CMake Files\..\..\..\..\usr\local\lib\cmake\opencv4\"/>
+		<Unit filename="/home/mic-730ai/fruitspec/JAI_Acquisition/../../../../usr/lib/aarch64-linux-gnu/cmake/opencv4/OpenCVConfig.cmake">
+			<Option virtualFolder="CMake Files\..\..\..\..\usr\lib\aarch64-linux-gnu\cmake\opencv4\"/>
 		</Unit>
-		<Unit filename="/home/mic-730ai/fruitspec/JAI_Acquisition/../../../../usr/local/lib/cmake/opencv4/OpenCVModules-release.cmake">
-			<Option virtualFolder="CMake Files\..\..\..\..\usr\local\lib\cmake\opencv4\"/>
+		<Unit filename="/home/mic-730ai/fruitspec/JAI_Acquisition/../../../../usr/lib/aarch64-linux-gnu/cmake/opencv4/OpenCVModules-release.cmake">
+			<Option virtualFolder="CMake Files\..\..\..\..\usr\lib\aarch64-linux-gnu\cmake\opencv4\"/>
 		</Unit>
-		<Unit filename="/home/mic-730ai/fruitspec/JAI_Acquisition/../../../../usr/local/lib/cmake/opencv4/OpenCVModules.cmake">
-			<Option virtualFolder="CMake Files\..\..\..\..\usr\local\lib\cmake\opencv4\"/>
+		<Unit filename="/home/mic-730ai/fruitspec/JAI_Acquisition/../../../../usr/lib/aarch64-linux-gnu/cmake/opencv4/OpenCVModules.cmake">
+			<Option virtualFolder="CMake Files\..\..\..\..\usr\lib\aarch64-linux-gnu\cmake\opencv4\"/>
 		</Unit>
 		<Unit filename="/home/mic-730ai/fruitspec/JAI_Acquisition/../../../../usr/local/zed/zed-config-version.cmake">
 			<Option virtualFolder="CMake Files\..\..\..\..\usr\local\zed\"/>

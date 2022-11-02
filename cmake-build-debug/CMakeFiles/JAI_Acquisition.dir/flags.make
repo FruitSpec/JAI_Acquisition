@@ -6,5 +6,5 @@ CXX_FLAGS =  -pthread -g   -std=gnu++1z
 
 CXX_DEFINES = -D_DEBUG -D_UNIX_=1
 
-CXX_INCLUDES = -isystem /usr/local/include/opencv4 -I/opt/jai/ebus_sdk/linux-aarch64-arm/include -I/usr/local/cuda-10.2/include -I/usr/local/zed/include 
+CXX_INCLUDES = -isystem /usr/include/opencv4 -I/opt/jai/ebus_sdk/linux-aarch64-arm/include -I/usr/local/cuda-10.2/include -I/usr/local/zed/include 
 

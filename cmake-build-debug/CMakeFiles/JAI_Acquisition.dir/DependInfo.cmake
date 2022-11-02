@@ -16,7 +16,7 @@ set(CMAKE_TARGET_DEFINITIONS_CXX
 
 # The include file search paths:
 set(CMAKE_CXX_TARGET_INCLUDE_PATH
-  "/usr/local/include/opencv4"
+  "/usr/include/opencv4"
   "/opt/jai/ebus_sdk/linux-aarch64-arm/include"
   "/usr/local/cuda-10.2/include"
   "/usr/local/zed/include"
