@@ -52,8 +52,7 @@ pthread_cond_t GrabEvent = PTHREAD_COND_INITIALIZER, MergeFramesEvent[3];
 pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t tmp_mtx = PTHREAD_MUTEX_INITIALIZER;
 //mutex mtx;
-VideoWriter mp4_FSI, mp4_RED;
-cv::Ptr<cv::cudacodec::VideoWriter> cuda_mp4_FSI;
+VideoWriter mp4_BGR, mp4_800, mp4_975;
 
 bool _abort = false, mp4_init = false;
 float avg_coloring = 0;
@@ -214,8 +213,11 @@ int main()
                 merge_t.join();
                 cout << "MERGE THREAD END" << endl;
 
-                mp4_FSI.release();
-                mp4_RED.release();
+                mp4_BGR.release();
+                mp4_800.release();
+                mp4_975.release();
+//                mp4_FSI.release();
+//                mp4_RED.release();
 
                 cout << "WRITE: " << avg_coloring / frame_count << endl;
 
@@ -427,18 +429,23 @@ int MP4CreateFirstTime(int height, int width) {
     if (!mp4_init)
     {
         int i = 0;
-        char filename[100];
+        char f_rgb[100], f_800[100], f_975[100];
         struct stat buffer;
         do {
             i++;
-            sprintf(filename, "/home/mic-730ai/Counter/Result_FSI_%d.mkv", i);
+            sprintf(f_rgb, "/home/mic-730ai/Counter/Result_RGB_%d.mkv", i);
+            sprintf(f_800, "/home/mic-730ai/Counter/Result_800_%d.mkv", i);
+            sprintf(f_975, "/home/mic-730ai/Counter/Result_975_%d.mkv", i);
             // sprintf(filename, "%s:\\Temp\\Result_FSI_%d.mkv", SelectedDrive.c_str(), i);
-        } while (stat(filename, &buffer) == 0);
+        } while (stat(f_rgb, &buffer) == 0);
 
 //        mp4_FSI = VideoWriter(filename, VideoWriter::fourcc('h', '2', '6', '4'), FPS, cv::Size(width, height), true);
-        string gstreamer = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=")
-                + filename;
-        mp4_FSI.open(gstreamer, 0, FPS, cv::Size(width, height));
+        string gs_rgb = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=") + f_rgb;
+        string gs_800 = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=") + f_800;
+        string gs_975 = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=") + f_975;
+        mp4_BGR.open(gs_rgb, 0, FPS, cv::Size(width, height));
+        mp4_800.open(gs_800, 0, FPS, cv::Size(width, height), false);
+        mp4_975.open(gs_975, 0, FPS, cv::Size(width, height), false);
         /*
         do {
             sprintf(filename, "%s:\\Temp\\Result_RED_%d.mkv", SelectedDrive.c_str(), i);
@@ -459,8 +466,7 @@ void MergeThread(void* _Frames) {
     queue<EnumeratedFrame*>** FramesQueue = (queue<EnumeratedFrame*> **)_Frames;
     EnumeratedFrame* e_frames[3];
     cv::Mat Frames[3], res;
-    cuda::GpuMat cudaFSI;
-    std::vector<GpuMat> cudaFrames(3);
+    cuda::GpuMat cudaBGR, cuda800, cuda975, cudaFSI;
     std::vector<cv::Mat> images(3);
     uint64_t CurrentBlockID;
     int size0, size1, size2;
@@ -482,8 +488,10 @@ void MergeThread(void* _Frames) {
                 max_wait.tv_sec += 1;
                 const int timed_wait_rv = pthread_cond_timedwait(&MergeFramesEvent[i], &mtx, &max_wait);
             }
-            if (_abort)
+            if (_abort) {
+                pthread_mutex_unlock(&mtx);
                 break;
+            }
             e_frames[i] = (*(FramesQueue[i])).front();
             Frames[i] = e_frames[i]->frame;
             fnum = e_frames[i]->BlockID;
@@ -495,37 +503,27 @@ void MergeThread(void* _Frames) {
         }
         if (_abort)
             break;
-        cv::Mat frame_BGR, res_FSI, blue, red;
-        // the actual bayer format we use is RGGB but OpenCV reffers to it as BayerBG - https://github.com/opencv/opencv/issues/19629
+        cv::Mat res_bgr, res_800, res_975;
+        // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV reffers to it as BayerBG - https://github.com/opencv/opencv/issues/19629
 
-        cudaFrames[0].upload(Frames[0]); // channel 0 = BayerBG8
-        cudaFrames[1].upload(Frames[2]); // channel 2 = 975nm -> Green
-        cudaFrames[2].upload(Frames[1]); // channel 1 = 800nm -> Red
+        cudaBGR.upload(Frames[0]); // channel 0 = BayerBG8
+        cuda800.upload(Frames[1]);
+        cuda975.upload(Frames[2]);
 
-//        cv::cuda::demosaicing(cudaFrames[0], cudaFrames[0], cv::COLOR_BayerBG2BGR);
-//        cv::cuda::split(cudaFrames[0], cudaBGR);
-//        cudaFrames[0] = cudaBGR[0]; // final blue extraction
+        cv::cuda::demosaicing(cudaBGR, cudaBGR, cv::COLOR_BayerBG2BGR);
+        cudaBGR.download(res_bgr);
+        cuda800.download(res_800);
+        cuda975.download(res_975);
 
-//        cv::merge(Frames, 3, res_FSI); // without CUDA
-        cv::cuda::merge(cudaFrames, cudaFSI); // with CUDA
-//        cv::cuda::cvtColor(cudaFSI, cudaFSI_LAB, COLOR_BGR2Lab);
-//        cv::cuda::split(cudaFSI_LAB, cudaLAB);
-//        cv::Ptr<cv::CLAHE> clahe = cv::cuda::createCLAHE();
-//        clahe->setClipLimit(4);
-//        clahe->apply(cudaLAB[0], cudaLAB_equalized[0]);
-//        cudaLAB_equalized[1] = cudaLAB[1];
-//        cudaLAB_equalized[2] = cudaLAB[2];
-//        cv::cuda::merge(cudaLAB_equalized, cudaFSI_LAB);
-//        cv::cuda::cvtColor(cudaFSI_LAB, cudaFSI, COLOR_Lab2BGR);
-        cudaFSI.download(res_FSI);
-        // cudaBGR[2].download(red);
         frame_count++;
         if (frame_count % (FPS * 30) == 0) cout << endl << frame_count / (FPS * 60.0) << " minutes of video written" << endl << endl;
 
         TickMeter t;
 //        cout << "WRITE START " << fnum << endl;
         t.start();
-        mp4_FSI.write(res_FSI);
+        mp4_BGR.write(res_bgr);
+        mp4_800.write(res_800);
+        mp4_975.write(res_975);
         t.stop();
 //        cout << "WRITE END " << fnum << " - " << t.getTimeMilli() << endl;
         // mp4_RED.write(red);
