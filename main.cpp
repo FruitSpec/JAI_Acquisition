@@ -24,7 +24,6 @@
 #include <stdio.h>
 #include <thread>
 #include <sl/Camera.hpp>
-#include <json/value.h>
 #include <fstream>
 
 using namespace cv;
@@ -54,7 +53,7 @@ pthread_cond_t GrabEvent = PTHREAD_COND_INITIALIZER, MergeFramesEvent[3];
 pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t tmp_mtx = PTHREAD_MUTEX_INITIALIZER;
 //mutex mtx;
-VideoWriter mp4_BGR, mp4_800, mp4_975;
+VideoWriter mp4_FSI, mp4_BGR, mp4_800, mp4_975;
 
 bool _abort = false, mp4_init = false;
 float avg_coloring = 0;
@@ -143,18 +142,18 @@ int main()
         lDevice = ConnectToDevice(lConnectionID);
         if (lDevice != NULL)
         {
-            ifstream config_file("./config.json", std::ifstream::binary);
-            config_file >> config;
-            for (auto it = config.begin(); it != config.end(); ++it){
-                string key = it.key();
-                auto value = it.value();
-                if (value.is_number_intger())
-                    lDevice->GetParameters()->SetIntgerValue(key, value);
-                if (value.is_number_float())
-                    lDevice->GetParameters()->SetFloatValue(key, value);
-                if (value.is_number_float())
-                    lDevice->GetParameters()->SetFloatValue(key, value);
-            }
+//            ifstream config_file("./config.json", std::ifstream::binary);
+//            config_file >> config;
+//            for (auto it = config.begin(); it != config.end(); ++it){
+//                string key = it.key();
+//                auto value = it.value();
+//                if (value.is_number_intger())
+//                    lDevice->GetParameters()->SetIntgerValue(key, value);
+//                if (value.is_number_float())
+//                    lDevice->GetParameters()->SetFloatValue(key, value);
+//                if (value.is_number_float())
+//                    lDevice->GetParameters()->SetFloatValue(key, value);
+//            }
             lDevice->GetParameters()->SetFloatValue("AcquisitionFrameRate", FPS);
             lDevice->GetParameters()->GetIntegerValue("Width", width);
             lDevice->GetParameters()->GetIntegerValue("Height", height);
@@ -228,6 +227,7 @@ int main()
                 merge_t.join();
                 cout << "MERGE THREAD END" << endl;
 
+                mp4_FSI.release();
                 mp4_BGR.release();
                 mp4_800.release();
                 mp4_975.release();
@@ -448,6 +448,7 @@ int MP4CreateFirstTime(int height, int width) {
         struct stat buffer;
         do {
             i++;
+            sprintf(f_fsi, "/home/mic-730ai/Counter/Result_FSI_%d.mkv", i);
             sprintf(f_rgb, "/home/mic-730ai/Counter/Result_RGB_%d.mkv", i);
             sprintf(f_800, "/home/mic-730ai/Counter/Result_800_%d.mkv", i);
             sprintf(f_975, "/home/mic-730ai/Counter/Result_975_%d.mkv", i);
@@ -455,9 +456,11 @@ int MP4CreateFirstTime(int height, int width) {
         } while (stat(f_rgb, &buffer) == 0);
 
 //        mp4_FSI = VideoWriter(filename, VideoWriter::fourcc('h', '2', '6', '4'), FPS, cv::Size(width, height), true);
+        string gs_fsi = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=") + f_fsi;
         string gs_rgb = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=") + f_rgb;
         string gs_800 = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=") + f_800;
         string gs_975 = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=") + f_975;
+        mp4_FSI.open(gs_fsi, 0, FPS, cv::Size(width, height));
         mp4_BGR.open(gs_rgb, 0, FPS, cv::Size(width, height));
         mp4_800.open(gs_800, 0, FPS, cv::Size(width, height), false);
         mp4_975.open(gs_975, 0, FPS, cv::Size(width, height), false);
@@ -518,7 +521,7 @@ void MergeThread(void* _Frames) {
         }
         if (_abort)
             break;
-        cv::Mat res_bgr, res_800, res_975;
+        cv::Mat res_fsi, res_bgr, res_800, res_975;
         // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV reffers to it as BayerBG - https://github.com/opencv/opencv/issues/19629
 
         cudaBGR.upload(Frames[0]); // channel 0 = BayerBG8
@@ -526,6 +529,8 @@ void MergeThread(void* _Frames) {
         cuda975.upload(Frames[2]);
 
         cv::cuda::demosaicing(cudaBGR, cudaBGR, cv::COLOR_BayerBG2BGR);
+
+        cudaBGR.download(res_fsi);
         cudaBGR.download(res_bgr);
         cuda800.download(res_800);
         cuda975.download(res_975);
@@ -536,6 +541,7 @@ void MergeThread(void* _Frames) {
         TickMeter t;
 //        cout << "WRITE START " << fnum << endl;
         t.start();
+        mp4_FSI.write(res_bgr);
         mp4_BGR.write(res_bgr);
         mp4_800.write(res_800);
         mp4_975.write(res_975);
