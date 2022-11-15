@@ -1,5 +1,5 @@
 {
-  "AcquisitionFrameRate": 30,
+  "AcquisitionFrameRate": 15.0,
   "ExposureAuto": "Continuous",
   "ExposureAutoControlMin": 100,
   "ExposureAutoControlMax": 3000,

@@ -25,11 +25,13 @@
 #include <thread>
 #include <sl/Camera.hpp>
 #include <fstream>
+#include <nlohmann/json.hpp>
 
 using namespace cv;
 using namespace cuda;
 using namespace sl;
 using namespace std;
+using json = nlohmann::json;
 
 typedef map<string, PvDisplayWnd*> PvDisplayWndMap;
 
@@ -121,7 +123,6 @@ int main()
     PvStream* lStreams[3] = {NULL, NULL, NULL};
     BufferList lBufferLists[3];
     StreamInfo* MyStreamInfos[3];
-//    Json::Value config;
 
     pthread_cond_init(&GrabEvent, NULL);
     for (int i = 0; i < 3; i++) {
@@ -135,26 +136,37 @@ int main()
 //    cout << "Please enter Frame Rate:" << endl;
 //    cin >> FPS_string;
 //    FPS = stoi(FPS_string);
-
+    system("ls ../");
+    ifstream config_file("../config.json", std::ifstream::binary);
+    json config = json::parse(config_file);
+    exit(12);
     PvString lConnectionID;
     if (PvSelectDevice(&lConnectionID))
     {
         lDevice = ConnectToDevice(lConnectionID);
         if (lDevice != NULL)
         {
-//            ifstream config_file("./config.json", std::ifstream::binary);
-//            config_file >> config;
-//            for (auto it = config.begin(); it != config.end(); ++it){
-//                string key = it.key();
-//                auto value = it.value();
-//                if (value.is_number_intger())
-//                    lDevice->GetParameters()->SetIntgerValue(key, value);
-//                if (value.is_number_float())
-//                    lDevice->GetParameters()->SetFloatValue(key, value);
-//                if (value.is_number_float())
-//                    lDevice->GetParameters()->SetFloatValue(key, value);
-//            }
-            lDevice->GetParameters()->SetFloatValue("AcquisitionFrameRate", FPS);
+            ifstream config_file("./config.json", std::ifstream::binary);
+            json config = json::parse(config_file);
+            PvGenParameterArray *lDeviceParams = lDevice->GetParameters();
+            for (auto it = config.begin(); it != config.end(); ++it){
+                string key = it.key();
+                auto value = it.value();
+                cout << "{" << key << ": " << value << "}" << value.is_number_integer() << endl;
+                if (value.is_number_integer()) {
+                    auto v = value.get<int>();
+                    lDeviceParams->SetIntegerValue(key, v);
+                }
+                if (value.is_number_float()) {
+                    auto v = value.get<double>();
+                    lDeviceParams->SetFloatValue(key, v);
+                }
+                if (value.is_string()) {
+                    auto v = value.get<PvString>();
+                    lDeviceParams->SetEnumValue(key, v);
+                }
+            }
+//            lDevice->GetParameters()->SetFloatValue("AcquisitionFrameRate", FPS);
             lDevice->GetParameters()->GetIntegerValue("Width", width);
             lDevice->GetParameters()->GetIntegerValue("Height", height);
             bool test_streaming = true;
