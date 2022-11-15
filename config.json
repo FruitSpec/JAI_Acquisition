@@ -1,9 +1,9 @@
 {
   "AcquisitionFrameRate": 30,
   "ExposureAuto": "Continuous",
-  "ExposureAutoMin": 100,
-  "ExposureAutoMax": 3000,
+  "ExposureAutoControlMin": 100,
+  "ExposureAutoControlMax": 3000,
   "GainAuto": "Once",
-  "GainAutoMin": 1,
-  "GainAutoMax": 2
+  "GainAutoControlMin": 1,
+  "GainAutoControlMax": 2
 }
