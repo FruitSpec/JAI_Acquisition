@@ -24,6 +24,8 @@
 #include <stdio.h>
 #include <thread>
 #include <sl/Camera.hpp>
+#include <json/value.h>
+#include <fstream>
 
 using namespace cv;
 using namespace cuda;
@@ -121,6 +123,7 @@ int main()
     PvStream* lStreams[3] = {NULL, NULL, NULL};
     BufferList lBufferLists[3];
     StreamInfo* MyStreamInfos[3];
+    Json::Value config;
 
     pthread_cond_init(&GrabEvent, NULL);
     for (int i = 0; i < 3; i++) {
@@ -141,6 +144,18 @@ int main()
         lDevice = ConnectToDevice(lConnectionID);
         if (lDevice != NULL)
         {
+            ifstream config_file("./config.json", std::ifstream::binary);
+            config_file >> config;
+            for (auto it = config.begin(); it != config.end(); ++it){
+                string key = it.key();
+                auto value = it.value();
+                if (value.is_number_intger())
+                    lDevice->GetParameters()->SetIntgerValue(key, value);
+                if (value.is_number_float())
+                    lDevice->GetParameters()->SetFloatValue(key, value);
+                if (value.is_number_float())
+                    lDevice->GetParameters()->SetFloatValue(key, value);
+            }
             lDevice->GetParameters()->SetFloatValue("AcquisitionFrameRate", FPS);
             lDevice->GetParameters()->GetIntegerValue("Width", width);
             lDevice->GetParameters()->GetIntegerValue("Height", height);
