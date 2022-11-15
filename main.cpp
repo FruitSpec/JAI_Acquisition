@@ -121,7 +121,7 @@ int main()
     PvStream* lStreams[3] = {NULL, NULL, NULL};
     BufferList lBufferLists[3];
     StreamInfo* MyStreamInfos[3];
-    Json::Value config;
+//    Json::Value config;
 
     pthread_cond_init(&GrabEvent, NULL);
     for (int i = 0; i < 3; i++) {
@@ -444,7 +444,7 @@ int MP4CreateFirstTime(int height, int width) {
     if (!mp4_init)
     {
         int i = 0;
-        char f_rgb[100], f_800[100], f_975[100];
+        char f_fsi[100], f_rgb[100], f_800[100], f_975[100];
         struct stat buffer;
         do {
             i++;
@@ -484,7 +484,8 @@ void MergeThread(void* _Frames) {
     queue<EnumeratedFrame*>** FramesQueue = (queue<EnumeratedFrame*> **)_Frames;
     EnumeratedFrame* e_frames[3];
     cv::Mat Frames[3], res;
-    cuda::GpuMat cudaBGR, cuda800, cuda975, cudaFSI;
+    cuda::GpuMat cudaFSI;
+    std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3), cudaFrames_equalized(3), cudaFrames_normalized(3);
     std::vector<cv::Mat> images(3);
     uint64_t CurrentBlockID;
     int size0, size1, size2;
@@ -524,16 +525,24 @@ void MergeThread(void* _Frames) {
         cv::Mat res_fsi, res_bgr, res_800, res_975;
         // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV reffers to it as BayerBG - https://github.com/opencv/opencv/issues/19629
 
-        cudaBGR.upload(Frames[0]); // channel 0 = BayerBG8
-        cuda800.upload(Frames[1]);
-        cuda975.upload(Frames[2]);
+        cudaFrames[0].upload(Frames[0]); // channel 0 = BayerBG8
+        cudaFrames[2].upload(Frames[1]); // channel 1 = 800nm -> Red
+        cudaFrames[1].upload(Frames[2]); // channel 2 = 975nm -> Green
 
-        cv::cuda::demosaicing(cudaBGR, cudaBGR, cv::COLOR_BayerBG2BGR);
+        cv::cuda::demosaicing(cudaFrames[0], cudaFrames[0], cv::COLOR_BayerBG2BGR);
+        cv::cuda::split(cudaFrames[0], cudaBGR);
+        cudaFrames[0].download(res_bgr);
+        cudaFrames[2].download(res_800);
+        cudaFrames[1].download(res_975);
 
-        cudaBGR.download(res_fsi);
-        cudaBGR.download(res_bgr);
-        cuda800.download(res_800);
-        cuda975.download(res_975);
+        cudaFrames[0] = cudaBGR[0];
+
+        for (int i = 0; i < 3; i++){
+            cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
+            cv::cuda::normalize(cudaFrames_equalized[i], cudaFrames_normalized[i], 0, 255, cv::NORM_MINMAX, CV_8U);
+        }
+        cv::cuda::merge(cudaFrames_normalized, cudaFSI);
+        cudaFSI.download(res_fsi);
 
         frame_count++;
         if (frame_count % (FPS * 30) == 0) cout << endl << frame_count / (FPS * 60.0) << " minutes of video written" << endl << endl;
@@ -541,7 +550,7 @@ void MergeThread(void* _Frames) {
         TickMeter t;
 //        cout << "WRITE START " << fnum << endl;
         t.start();
-        mp4_FSI.write(res_bgr);
+        mp4_FSI.write(res_fsi);
         mp4_BGR.write(res_bgr);
         mp4_800.write(res_800);
         mp4_975.write(res_975);
