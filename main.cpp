@@ -25,6 +25,7 @@
 #include <thread>
 #include <sl/Camera.hpp>
 #include <fstream>
+#include <mntent.h>
 #include <nlohmann/json.hpp>
 
 using namespace cv;
@@ -139,6 +140,14 @@ int main() {
 //    cout << "Please enter Frame Rate:" << endl;
 //    cin >> FPS_string;
 //    FPS = stoi(FPS_string);
+    cout << "Enter '0' if you want to use 'Extreme Pro'. Otherwise, enter 'd'" << endl;
+    string output_dir;
+    cin >> output_dir;
+    if (output_dir == "0")
+        output_dir = string("/media/mic-730ai/Extreme Pro/Acquisition")
+    else
+        output_dir = string("/home/mic-730ai/Desktop/Acquisition")
+    cout << "saving to " << output_dir << endl;
     ifstream config_file("/home/mic-730ai/fruitspec/JAI_Acquisition/config.json", std::ifstream::binary);
     json config = json::parse(config_file);
     PvString lConnectionID;
@@ -216,7 +225,7 @@ int main() {
                     }
 
                     // Enable video recording
-                    sprintf(zed_filename, "/home/mic-730ai/Counter/ZED_%d.svo", file_index);
+                    sprintf(zed_filename, "/media/mic-730ai/Extreme Pro/Acquisition/ZED_%d.svo", file_index);
                     err = zed.enableRecording(RecordingParameters(zed_filename, SVO_COMPRESSION_MODE::H265));
                     if (err != ERROR_CODE::SUCCESS) {
                         std::cout << toString(err) << std::endl;
@@ -448,10 +457,10 @@ int MP4CreateFirstTime(int height, int width) {
         struct stat buffer;
         do {
             i++;
-            sprintf(f_fsi, "/home/mic-730ai/Counter/Result_FSI_%d.mkv", i);
-            sprintf(f_rgb, "/home/mic-730ai/Counter/Result_RGB_%d.mkv", i);
-            sprintf(f_800, "/home/mic-730ai/Counter/Result_800_%d.mkv", i);
-            sprintf(f_975, "/home/mic-730ai/Counter/Result_975_%d.mkv", i);
+            sprintf(f_fsi, "\"/media/mic-730ai/Extreme Pro/Acquisition/Result_FSI_%d.mkv\"", i);
+            sprintf(f_rgb, "\"/media/mic-730ai/Extreme Pro/Acquisition/Result_RGB_%d.mkv\"", i);
+            sprintf(f_800, "\"/media/mic-730ai/Extreme Pro/Acquisition/Result_800_%d.mkv\"", i);
+            sprintf(f_975, "\"/media/mic-730ai/Extreme Pro/Acquisition/Result_975_%d.mkv\"", i);
             // sprintf(filename, "%s:\\Temp\\Result_FSI_%d.mkv", SelectedDrive.c_str(), i);
         } while (stat(f_rgb, &buffer) == 0);
 
@@ -548,15 +557,14 @@ void MergeThread(void *_Frames) {
             cout << endl << frame_count / (FPS * 60.0) << " minutes of video written" << endl << endl;
 
         TickMeter t;
-//        cout << "WRITE START " << fnum << endl;
         t.start();
+
         mp4_FSI.write(res_fsi);
         mp4_BGR.write(res_bgr);
         mp4_800.write(res_800);
         mp4_975.write(res_975);
+
         t.stop();
-//        cout << "WRITE END " << fnum << " - " << t.getTimeMilli() << endl;
-        // mp4_RED.write(red);
         elapsed = t.getTimeMilli();
         avg_coloring += elapsed;
     }
@@ -566,7 +574,6 @@ void MergeThread(void *_Frames) {
 PvDisplayWnd *GetDisplay(const string &aName) {
     PvDisplayWndMap::iterator lIt = mDisplays.find(aName);
     if (lIt != mDisplays.end()) {
-        // Return existing display
         return lIt->second;
     }
 
