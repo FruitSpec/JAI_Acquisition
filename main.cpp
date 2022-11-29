@@ -27,6 +27,7 @@
 #include <fstream>
 #include <mntent.h>
 #include <nlohmann/json.hpp>
+#include <dirent.h>
 
 using namespace cv;
 using namespace cuda;
@@ -55,11 +56,13 @@ void ZedThread(int file_index);
 
 void MergeThread(void *_Frames);
 
-int MP4CreateFirstTime(int height, int width);
+int MP4CreateFirstTime(int height, int width, string output_dir);
 
 void Display(PvBuffer *aBuffer);
 
 void ConfigureStream(PvDevice *aDevice, PvStream *aStream, int channel);
+
+string get_output_dir();
 
 pthread_cond_t GrabEvent = PTHREAD_COND_INITIALIZER, MergeFramesEvent[3];
 pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
@@ -121,12 +124,41 @@ void ConfigureStream(PvDevice *aDevice, PvStream *aStream, int channel) {
     }
 }
 
+string get_output_dir(){
+    DIR *dir;
+    dirent *ent;
+    struct stat validator;
+    int i = 0, output_i;
+    string output_dir ("/media/mic-730ai/");
+    string target_dir ("/Acquisition");
+    cout << "choose output device" << endl;
+    if ((dir = opendir(output_dir.c_str())) != NULL)
+        while ((ent = readdir(dir)) != NULL)
+            if (strcmp(ent->d_name, ".") & strcmp(ent->d_name, "..") != 0)
+                cout << "\t" << ++i << " - " << ent->d_name << endl;
+    i = 0;
+    cin >> output_i;
+    if ((dir = opendir(output_dir.c_str())) != NULL)
+        while ((ent = readdir(dir)) != NULL)
+            if ((strcmp(ent->d_name, ".") & strcmp(ent->d_name, "..") != 0) and ++i == output_i) {
+                output_dir += string(ent->d_name) + target_dir;
+                break;
+            }
+
+    if (stat(output_dir.c_str(), &validator) != 0) {
+        mkdir(output_dir.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+        cout << output_dir << " Created!" << endl;
+    }
+
+    return output_dir;
+}
 
 int main() {
     PvDevice *lDevice = NULL;
     PvStream *lStreams[3] = {NULL, NULL, NULL};
     BufferList lBufferLists[3];
     StreamInfo *MyStreamInfos[3];
+    string output_dir;
 
     pthread_cond_init(&GrabEvent, NULL);
     for (int i = 0; i < 3; i++) {
@@ -137,17 +169,9 @@ int main() {
 
     PV_SAMPLE_INIT();
 
-//    cout << "Please enter Frame Rate:" << endl;
-//    cin >> FPS_string;
-//    FPS = stoi(FPS_string);
-    cout << "Enter '0' if you want to use 'Extreme Pro'. Otherwise, enter 'd'" << endl;
-    string output_dir;
-    cin >> output_dir;
-    if (output_dir == "0")
-        output_dir = string("/media/mic-730ai/Extreme Pro/Acquisition")
-    else
-        output_dir = string("/home/mic-730ai/Desktop/Acquisition")
-    cout << "saving to " << output_dir << endl;
+    output_dir = get_output_dir();
+    cout << "saving files to " << output_dir << endl;
+
     ifstream config_file("/home/mic-730ai/fruitspec/JAI_Acquisition/config.json", std::ifstream::binary);
     json config = json::parse(config_file);
     PvString lConnectionID;
@@ -155,7 +179,7 @@ int main() {
         lDevice = ConnectToDevice(lConnectionID);
         if (lDevice != NULL) {
 //            PvGenParameterArray *lDeviceParams = lDevice->GetParameters();
-//            for (auto it = config.begin(); it != config.end(); ++it){
+//            for (auto it = config.begin(); it != config.end(); ++it) {
 //                string key = it.key();
 //                auto value = it.value();
 //                cout << "{" << key << ": " << value << "}" << value.is_number_integer() << endl;
@@ -209,7 +233,7 @@ int main() {
                     queue<EnumeratedFrame *> *Frames[3] = {&(MyStreamInfos[0]->Frames), &(MyStreamInfos[1]->Frames),
                                                            &(MyStreamInfos[2]->Frames)};
                     lDevice->StreamEnable();
-                    int file_index = MP4CreateFirstTime(height, width);
+                    int file_index = MP4CreateFirstTime(height, width, output_dir);
 
                     // Enable streaming and send the AcquisitionStart command
 
@@ -225,7 +249,7 @@ int main() {
                     }
 
                     // Enable video recording
-                    sprintf(zed_filename, "/media/mic-730ai/Extreme Pro/Acquisition/ZED_%d.svo", file_index);
+                    sprintf(zed_filename, (output_dir + string("/ZED_%d.svo")).c_str(), file_index);
                     err = zed.enableRecording(RecordingParameters(zed_filename, SVO_COMPRESSION_MODE::H265));
                     if (err != ERROR_CODE::SUCCESS) {
                         std::cout << toString(err) << std::endl;
@@ -339,9 +363,6 @@ void CreateStreamBuffers(PvDevice *aDevice, PvStream *aStream, BufferList *aBuff
 
     // Use BUFFER_COUNT or the maximum number of buffers, whichever is smaller
     uint32_t lBufferCount = aStream->GetQueuedBufferMaximum();
-//    ( aStream->GetQueuedBufferMaximum() < BUFFER_COUNT ) ?
-//                            aStream->GetQueuedBufferMaximum() :
-//                            BUFFER_COUNT;
 
     // Allocate buffers
     for (uint32_t i = 0; i < lBufferCount; i++) {
@@ -379,8 +400,12 @@ void ZedThread(int file_index) {
     cout << "ZED THREAD STARTED" << endl;
 
     // Grab data and write to SVO file
-    while (!_abort)
-        zed.grab();
+    while (!_abort) {
+        ERROR_CODE err = zed.grab();
+        if (err != ERROR_CODE::SUCCESS) {
+            std::cout << toString(err) << std::endl;
+        }
+    }
 
     zed.disableRecording();
     zed.close();
@@ -450,25 +475,22 @@ void GrabThread(void *_StreamInfo) {
     cout << StreamIndex << ": Acquisition end with " << CurrentBlockID << endl;
 }
 
-int MP4CreateFirstTime(int height, int width) {
+int MP4CreateFirstTime(int height, int width, string output_dir) {
     if (!mp4_init) {
         int i = 0;
         char f_fsi[100], f_rgb[100], f_800[100], f_975[100];
         struct stat buffer;
         do {
             i++;
-            sprintf(f_fsi, "\"/media/mic-730ai/Extreme Pro/Acquisition/Result_FSI_%d.mkv\"", i);
-            sprintf(f_rgb, "\"/media/mic-730ai/Extreme Pro/Acquisition/Result_RGB_%d.mkv\"", i);
-            sprintf(f_800, "\"/media/mic-730ai/Extreme Pro/Acquisition/Result_800_%d.mkv\"", i);
-            sprintf(f_975, "\"/media/mic-730ai/Extreme Pro/Acquisition/Result_975_%d.mkv\"", i);
-            // sprintf(filename, "%s:\\Temp\\Result_FSI_%d.mkv", SelectedDrive.c_str(), i);
+            sprintf(f_fsi, (string("\"") + output_dir + string("/Result_FSI_%d.mkv\"")).c_str(), i);
+            sprintf(f_rgb, (string("\"") + output_dir + string("/Result_RGB_%d.mkv\"")).c_str(), i);
+            sprintf(f_800, (string("\"") + output_dir + string("/Result_800_%d.mkv\"")).c_str(), i);
+            sprintf(f_975, (string("\"") + output_dir + string("/Result_975_%d.mkv\"")).c_str(), i);
         } while (stat(f_rgb, &buffer) == 0);
 
-//        mp4_FSI = VideoWriter(filename, VideoWriter::fourcc('h', '2', '6', '4'), FPS, cv::Size(width, height), true);
-        string gs_fsi = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=") + f_fsi;
-        string gs_rgb = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=") + f_rgb;
-        string gs_800 = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=") + f_800;
-        string gs_975 = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=") + f_975;
+        string gs = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=");
+        string gs_fsi = gs + f_fsi, gs_rgb = gs + f_rgb, gs_800 = gs + f_800, gs_975 = gs + f_975;
+
         mp4_FSI.open(gs_fsi, 0, FPS, cv::Size(width, height));
         mp4_BGR.open(gs_rgb, 0, FPS, cv::Size(width, height));
         mp4_800.open(gs_800, 0, FPS, cv::Size(width, height), false);

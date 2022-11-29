@@ -1,9 +1,11 @@
 {
-  "AcquisitionFrameRate": 15.0,
-  "ExposureAuto": "Continuous",
-  "ExposureAutoControlMin": 100,
-  "ExposureAutoControlMax": 3000,
-  "GainAuto": "Once",
-  "GainAutoControlMin": 1,
-  "GainAutoControlMax": 2
+  "JAI": {
+    "AcquisitionFrameRate": 15.0,
+    "ExposureAuto": "Continuous",
+    "ExposureAutoControlMin": 100,
+    "ExposureAutoControlMax": 3000,
+    "GainAuto": "Once",
+    "GainAutoControlMin": 1,
+    "GainAutoControlMax": 2
+  }
 }
