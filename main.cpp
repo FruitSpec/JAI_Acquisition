@@ -63,12 +63,14 @@ void Display(PvBuffer *aBuffer);
 void ConfigureStream(PvDevice *aDevice, PvStream *aStream, int channel);
 
 string get_output_dir();
+void setup_JAI();
 
 pthread_cond_t GrabEvent = PTHREAD_COND_INITIALIZER, MergeFramesEvent[3];
 pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t tmp_mtx = PTHREAD_MUTEX_INITIALIZER;
-//mutex mtx;
 VideoWriter mp4_FSI, mp4_BGR, mp4_800, mp4_975;
+ofstream outfile;
+json config;
 
 bool _abort = false, mp4_init = false;
 float avg_coloring = 0;
@@ -153,12 +155,63 @@ string get_output_dir(){
     return output_dir;
 }
 
+void setup_JAI(){
+    PvGenParameterArray *lDeviceParams = lDevice->GetParameters();
+    json jai_config = config["JAI"];
+    for (auto it = jai_config.begin(); it != jai_config.end(); ++it) {
+        string key = it.key();
+        auto value = it.value();
+        cout << "{" << key << ": " << value << "}" << value.is_number_integer() << endl;
+        if (value.is_number_integer()) {
+            auto v = value.get<int>();
+            cout << v << endl;
+//                    lDeviceParams->SetIntegerValue(key, v);
+        }
+        if (value.is_number_float()) {
+            auto v = value.get<double>();
+            cout << v << endl;
+//                    lDeviceParams->SetFloatValue(key, v);
+        }
+        if (value.is_string()) {
+            auto v = value.get<string>();
+            cout << v << endl;
+//                    lDeviceParams->SetEnumValue(key, v);
+        }
+    }
+    lDevice->GetParameters()->SetFloatValue("AcquisitionFrameRate", FPS);
+    lDevice->GetParameters()->GetIntegerValue("Width", width);
+    lDevice->GetParameters()->GetIntegerValue("Height", height);
+}
+
+void setup_ZED(){
+    char zed_filename[100];
+    InitParameters init_params;
+    init_params.camera_resolution = RESOLUTION::HD1080; // Use HD1080 video mode
+    init_params.camera_fps = FPS; // Set fps at 30
+
+    ERROR_CODE err = zed.open(init_params);
+    if (err != ERROR_CODE::SUCCESS) {
+        std::cout << toString(err) << std::endl;
+        exit(-1);
+    }
+
+    // Enable video recording
+    sprintf(zed_filename, (output_dir + string("/ZED_%d.svo")).c_str(), file_index);
+    err = zed.enableRecording(RecordingParameters(zed_filename, SVO_COMPRESSION_MODE::H265));
+    if (err != ERROR_CODE::SUCCESS) {
+        std::cout << toString(err) << std::endl;
+        exit(-1);
+    }
+}
+
 int main() {
     PvDevice *lDevice = NULL;
     PvStream *lStreams[3] = {NULL, NULL, NULL};
     BufferList lBufferLists[3];
     StreamInfo *MyStreamInfos[3];
     string output_dir;
+
+    config = json::parse(config_file);
 
     pthread_cond_init(&GrabEvent, NULL);
     for (int i = 0; i < 3; i++) {
@@ -173,38 +226,11 @@ int main() {
     cout << "saving files to " << output_dir << endl;
 
     ifstream config_file("/home/mic-730ai/fruitspec/JAI_Acquisition/config.json", std::ifstream::binary);
-    json config = json::parse(config_file);
-    json jai_config = config["JAI"];
-    cout << jai_config << endl;
-    exit(-1);
     PvString lConnectionID;
     if (PvSelectDevice(&lConnectionID)) {
         lDevice = ConnectToDevice(lConnectionID);
         if (lDevice != NULL) {
-            PvGenParameterArray *lDeviceParams = lDevice->GetParameters();
-            for (auto it = config.begin(); it != config.end(); ++it) {
-                string key = it.key();
-                auto value = it.value();
-                cout << "{" << key << ": " << value << "}" << value.is_number_integer() << endl;
-                if (value.is_number_integer()) {
-                    auto v = value.get<int>();
-                    cout << v << endl;
-//                    lDeviceParams->SetIntegerValue(key, v);
-                }
-                if (value.is_number_float()) {
-                    auto v = value.get<double>();
-                    cout << v << endl;
-//                    lDeviceParams->SetFloatValue(key, v);
-                }
-                if (value.is_string()) {
-                    auto v = value.get<string>();
-                    cout << v << endl;
-//                    lDeviceParams->SetEnumValue(key, v);
-                }
-            }
-            lDevice->GetParameters()->SetFloatValue("AcquisitionFrameRate", FPS);
-            lDevice->GetParameters()->GetIntegerValue("Width", width);
-            lDevice->GetParameters()->GetIntegerValue("Height", height);
+            setup_JAI();
             bool test_streaming = true;
             for (int i = 0; i < 3; i++) {
                 lStreams[i] = OpenStream(lConnectionID);
@@ -238,6 +264,11 @@ int main() {
                     lDevice->StreamEnable();
                     int file_index = MP4CreateFirstTime(height, width, output_dir);
 
+
+                    char log_filename[100];
+                    sprintf(log_filename, (output_dir + string("/frame_drop_%d.log")).c_str(), file_index);
+                    outfile.open(log_filename, std::ios_base::app); // append instead of overwrite
+
                     // Enable streaming and send the AcquisitionStart command
 
                     char zed_filename[100];
@@ -259,10 +290,11 @@ int main() {
                         exit(-1);
                     }
 
-                    lStart->Execute();
                     cout << "Enabling streaming and sending AcquisitionStart command." << endl;
                     t0.start();
                     thread zed_t(ZedThread, file_index);
+
+                    lStart->Execute();
                     thread jai_t1(GrabThread, (void *) MyStreamInfos[0]);
                     thread jai_t2(GrabThread, (void *) MyStreamInfos[1]);
                     thread jai_t3(GrabThread, (void *) MyStreamInfos[2]);
@@ -277,10 +309,12 @@ int main() {
                     jai_t2.join();
                     jai_t3.join();
                     cout << "JAI THREAD END" << endl;
+
                     zed_t.join();
                     cout << "ZED THREAD END" << endl;
                     merge_t.join();
                     cout << "MERGE THREAD END" << endl;
+
                     mp4_FSI.release();
                     mp4_BGR.release();
                     mp4_800.release();
@@ -295,6 +329,7 @@ int main() {
                     // Disable streaming on the device
                     cout << "Disable streaming on the controller." << endl;
                     lDevice->StreamDisable();
+                    outfile.close();
                 }
 
                 // Abort all buffers from the streams and dequeue
@@ -401,13 +436,11 @@ void FreeStreamBuffers(BufferList *aBufferList) {
 
 void ZedThread(int file_index) {
     cout << "ZED THREAD STARTED" << endl;
-
     // Grab data and write to SVO file
-    while (!_abort) {
+    for (int i = 1; !_abort; i++){
         ERROR_CODE err = zed.grab();
-        if (err != ERROR_CODE::SUCCESS) {
-            std::cout << toString(err) << std::endl;
-        }
+        if (err != ERROR_CODE::SUCCESS)
+            outfile << "ZED FRAME DROP - FRAME NO. " << i << endl;
     }
 
     zed.disableRecording();
@@ -443,10 +476,10 @@ void GrabThread(void *_StreamInfo) {
                 // We now have a valid buffer. This is where you would typically process the buffer.
 
                 CurrentBlockID = lBuffer->GetBlockID();
-//                if (CurrentBlockID != PrevBlockID + 1 and PrevBlockID != 0)
-//                    cout << "STREAM " << StreamIndex << " MISSED BLOCK. OLD: " << PrevBlockID <<
-//                    ", NEW: " << CurrentBlockID << endl;
-//                PrevBlockID = CurrentBlockID;
+                if (CurrentBlockID != PrevBlockID + 1 and PrevBlockID != 0) {
+                    outfile << "JAI STREAM " << StreamIndex << " - FRAME DROP - FRAME No. " << PrevBlockID << endl;
+                }
+                PrevBlockID = CurrentBlockID;
                 height = lBuffer->GetImage()->GetHeight(), width = lBuffer->GetImage()->GetWidth();
                 cv::Mat frame(height, width, CV_8U, lBuffer->GetImage()->GetDataPointer());
                 lStream->QueueBuffer(lBuffer);
@@ -454,11 +487,6 @@ void GrabThread(void *_StreamInfo) {
                 curr_frame->frame = frame;
                 curr_frame->BlockID = CurrentBlockID;
                 pthread_mutex_lock(&mtx);
-//                if (StreamIndex == 0) {
-//                    t0.stop();
-//                    cout << CurrentBlockID << " AFTER " << t0.getTimeMilli() << endl;
-//                    t0.start();
-//                }
                 MyStreamInfo->Frames.push(curr_frame);
                 pthread_cond_signal(&MergeFramesEvent[StreamIndex]);
                 pthread_mutex_unlock(&mtx);
