@@ -7,5 +7,14 @@
     "GainAuto": "Once",
     "GainAutoControlMin": 1,
     "GainAutoControlMax": 2
+  },
+  "ZED": {
+    "FPS": 15
+  },
+  "save streams": {
+    "RGB": true,
+    "800": true,
+    "975": true,
+    "FSI": true
   }
 }

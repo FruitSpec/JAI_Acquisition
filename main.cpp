@@ -174,31 +174,34 @@ int main() {
 
     ifstream config_file("/home/mic-730ai/fruitspec/JAI_Acquisition/config.json", std::ifstream::binary);
     json config = json::parse(config_file);
+    json jai_config = config["JAI"];
+    cout << jai_config << endl;
+    exit(-1);
     PvString lConnectionID;
     if (PvSelectDevice(&lConnectionID)) {
         lDevice = ConnectToDevice(lConnectionID);
         if (lDevice != NULL) {
-//            PvGenParameterArray *lDeviceParams = lDevice->GetParameters();
-//            for (auto it = config.begin(); it != config.end(); ++it) {
-//                string key = it.key();
-//                auto value = it.value();
-//                cout << "{" << key << ": " << value << "}" << value.is_number_integer() << endl;
-//                if (value.is_number_integer()) {
-//                    auto v = value.get<int>();
-//                    cout << v << endl;
-////                    lDeviceParams->SetIntegerValue(key, v);
-//                }
-//                if (value.is_number_float()) {
-//                    auto v = value.get<double>();
-//                    cout << v << endl;
-////                    lDeviceParams->SetFloatValue(key, v);
-//                }
-//                if (value.is_string()) {
-//                    auto v = value.get<string>();
-//                    cout << v << endl;
-////                    lDeviceParams->SetEnumValue(key, v);
-//                }
-//            }
+            PvGenParameterArray *lDeviceParams = lDevice->GetParameters();
+            for (auto it = config.begin(); it != config.end(); ++it) {
+                string key = it.key();
+                auto value = it.value();
+                cout << "{" << key << ": " << value << "}" << value.is_number_integer() << endl;
+                if (value.is_number_integer()) {
+                    auto v = value.get<int>();
+                    cout << v << endl;
+//                    lDeviceParams->SetIntegerValue(key, v);
+                }
+                if (value.is_number_float()) {
+                    auto v = value.get<double>();
+                    cout << v << endl;
+//                    lDeviceParams->SetFloatValue(key, v);
+                }
+                if (value.is_string()) {
+                    auto v = value.get<string>();
+                    cout << v << endl;
+//                    lDeviceParams->SetEnumValue(key, v);
+                }
+            }
             lDevice->GetParameters()->SetFloatValue("AcquisitionFrameRate", FPS);
             lDevice->GetParameters()->GetIntegerValue("Width", width);
             lDevice->GetParameters()->GetIntegerValue("Height", height);
