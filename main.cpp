@@ -63,7 +63,8 @@ void Display(PvBuffer *aBuffer);
 void ConfigureStream(PvDevice *aDevice, PvStream *aStream, int channel);
 
 string get_output_dir();
-void setup_JAI();
+bool setup_JAI(StreamInfo *MyStreamInfos[3]);
+void setup_ZED();
 
 pthread_cond_t GrabEvent = PTHREAD_COND_INITIALIZER, MergeFramesEvent[3];
 pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
@@ -155,8 +156,11 @@ string get_output_dir(){
     return output_dir;
 }
 
-void setup_JAI(){
+bool setup_JAI(StreamInfo *MyStreamInfos[3]){
+    PvStream *lStreams[3] = {NULL, NULL, NULL};
     PvGenParameterArray *lDeviceParams = lDevice->GetParameters();
+    bool test_streaming = true;
+
     json jai_config = config["JAI"];
     for (auto it = jai_config.begin(); it != jai_config.end(); ++it) {
         string key = it.key();
@@ -181,6 +185,23 @@ void setup_JAI(){
     lDevice->GetParameters()->SetFloatValue("AcquisitionFrameRate", FPS);
     lDevice->GetParameters()->GetIntegerValue("Width", width);
     lDevice->GetParameters()->GetIntegerValue("Height", height);
+
+    for (int i = 0; i < 3; i++) {
+        MyStreamInfos[i] = new StreamInfo;
+        MergeFramesEvent[i] = PTHREAD_COND_INITIALIZER;
+        pthread_cond_init(&MergeFramesEvent[i], NULL);
+
+        lStreams[i] = OpenStream(lConnectionID);
+        if (lStreams[i] != NULL) {
+            ConfigureStream(lDevice, lStreams[i], i);
+            CreateStreamBuffers(lDevice, lStreams[i], &lBufferLists[i]);
+            MyStreamInfos[i]->aStream = lStreams[i];
+            MyStreamInfos[i]->StreamIndex = i;
+        } else
+            test_streaming = false;
+    }
+
+    return test_streaming;
 }
 
 void setup_ZED(){
@@ -214,11 +235,6 @@ int main() {
     config = json::parse(config_file);
 
     pthread_cond_init(&GrabEvent, NULL);
-    for (int i = 0; i < 3; i++) {
-        MyStreamInfos[i] = new StreamInfo;
-        MergeFramesEvent[i] = PTHREAD_COND_INITIALIZER;
-        pthread_cond_init(&MergeFramesEvent[i], NULL);
-    }
 
     PV_SAMPLE_INIT();
 
@@ -230,18 +246,7 @@ int main() {
     if (PvSelectDevice(&lConnectionID)) {
         lDevice = ConnectToDevice(lConnectionID);
         if (lDevice != NULL) {
-            setup_JAI();
-            bool test_streaming = true;
-            for (int i = 0; i < 3; i++) {
-                lStreams[i] = OpenStream(lConnectionID);
-                if (lStreams[i] != NULL) {
-                    ConfigureStream(lDevice, lStreams[i], i);
-                    CreateStreamBuffers(lDevice, lStreams[i], &lBufferLists[i]);
-                    MyStreamInfos[i]->aStream = lStreams[i];
-                    MyStreamInfos[i]->StreamIndex = i;
-                } else
-                    test_streaming = false;
-            }
+            bool test_streaming = setup_JAI(MyStreamInfos);
             if (test_streaming) {
                 while (1) {
                     _abort = false;
@@ -271,24 +276,7 @@ int main() {
 
                     // Enable streaming and send the AcquisitionStart command
 
-                    char zed_filename[100];
-                    InitParameters init_params;
-                    init_params.camera_resolution = RESOLUTION::HD1080; // Use HD1080 video mode
-                    init_params.camera_fps = FPS; // Set fps at 30
-
-                    ERROR_CODE err = zed.open(init_params);
-                    if (err != ERROR_CODE::SUCCESS) {
-                        std::cout << toString(err) << std::endl;
-                        exit(-1);
-                    }
-
-                    // Enable video recording
-                    sprintf(zed_filename, (output_dir + string("/ZED_%d.svo")).c_str(), file_index);
-                    err = zed.enableRecording(RecordingParameters(zed_filename, SVO_COMPRESSION_MODE::H265));
-                    if (err != ERROR_CODE::SUCCESS) {
-                        std::cout << toString(err) << std::endl;
-                        exit(-1);
-                    }
+                    setup_ZED();
 
                     cout << "Enabling streaming and sending AcquisitionStart command." << endl;
                     t0.start();
@@ -335,15 +323,15 @@ int main() {
                 // Abort all buffers from the streams and dequeue
                 cout << "Aborting buffers still in streams" << endl << "closing streams" << endl;
                 for (int i = 0; i < 3; i++) {
-                    lStreams[i]->AbortQueuedBuffers();
-                    while (lStreams[i]->GetQueuedBufferCount() > 0) {
+                    MyStreamInfos[i]->aStream->AbortQueuedBuffers();
+                    while (MyStreamInfos[i]->aStream->GetQueuedBufferCount() > 0) {
                         PvBuffer *lBuffer = NULL;
                         PvResult lOperationResult;
-                        lStreams[i]->RetrieveBuffer(&lBuffer, &lOperationResult);
+                        MyStreamInfos[i]->aStream->RetrieveBuffer(&lBuffer, &lOperationResult);
                     }
                     FreeStreamBuffers(&lBufferLists[i]);
-                    lStreams[i]->Close();
-                    PvStream::Free(lStreams[i]);
+                    MyStreamInfos[i]->aStream->Close();
+                    PvStream::Free(MyStreamInfos[i]->aStream);
                 }
             }
 
