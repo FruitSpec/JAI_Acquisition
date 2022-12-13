@@ -325,9 +325,9 @@ int main() {
         cout << "MERGE THREAD END" << endl;
 
         mp4_FSI.release();
-//        mp4_BGR.release();
-//        mp4_800.release();
-//        mp4_975.release();
+        mp4_BGR.release();
+        mp4_800.release();
+        mp4_975.release();
 
         cout << "WRITE: " << avg_coloring / frame_count << endl;
 
@@ -531,13 +531,14 @@ int MP4CreateFirstTime(int height, int width, string output_dir) {
                         to_string(height) + string(", framerate=(fraction)") + to_string(FPS) +
                         string("/1 ! queue ! videoconvert ! video/x-raw,format=BGRx ! nvvidconv ! "
                                "nvv4l2h265enc bitrate=8000000 ! h265parse ! matroskamux ! filesink location=");
-        string gs_fsi = gst_3c + f_fsi;
-//        string gs_rgb = gst_3c + f_rgb, gs_800 = gs + f_800, gs_975 = gs + f_975;
+        string gst_1c = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=");
+        string gs_fsi = gst_3c + f_fsi, fs_rgb = gst_3c + f_rgb;
+        string gs_800 = gst_1c + f_800, gs_975 = gst_1c + f_975;
 
         mp4_FSI.open(gs_fsi, VideoWriter::fourcc('H', '2', '6', '4'), FPS, cv::Size(width, height));
-//        mp4_BGR.open(gs_rgb, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
-//        mp4_800.open(gs_800, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
-//        mp4_975.open(gs_975, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
+        mp4_BGR.open(gs_rgb, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
+        mp4_800.open(gs_800, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
+        mp4_975.open(gs_975, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
         /*
         do {
             sprintf(filename, "%s:\\Temp\\Result_RED_%d.mkv", SelectedDrive.c_str(), i);
@@ -625,9 +626,9 @@ void MergeThread(void *_Frames) {
         t.start();
 
         mp4_FSI.write(res_fsi);
-//        mp4_BGR.write(res_bgr);
-//        mp4_800.write(res_800);
-//        mp4_975.write(res_975);
+        mp4_BGR.write(res_bgr);
+        mp4_800.write(res_800);
+        mp4_975.write(res_975);
 
         t.stop();
         elapsed = t.getTimeMilli();
