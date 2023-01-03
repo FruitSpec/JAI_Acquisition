@@ -76,6 +76,41 @@ typedef struct {
 
 typedef list<PvBuffer *> BufferList;
 
+static PyMethodDef capiMethods[] = {
+        {
+                "start_acquisition",
+                (PyCFunction) start_acquisition,
+                METH_VARARGS,
+                PyDoc_STR("start JAI & ZED acquisition"),
+                (NULL, NULL, 0, NULL)
+        },
+        {
+                "stop_acquisition",
+                (PyCFunction) stop_acquisition,
+                METH_VARARGS,
+                PyDoc_STR("stop JAI & ZED acquisition"),
+                (NULL, NULL, 0, NULL)
+        }
+};
+
+static struct PyModuleDef moduleDef ={
+        PyModuleDef_HEAD_INIT,
+        "jaized_aqcuisition",
+        NULL,
+        -1,
+        capiMethods
+};
+
+PyMODINT_FUNC
+PyInit_jaized_aqcuisition(void){
+    PyObject *m;
+    m = PyModule_Create(&moduledef);
+    if (!m)
+        return NULL;
+    return m;
+}
+
+
 pthread_cond_t GrabEvent = PTHREAD_COND_INITIALIZER, MergeFramesEvent[3];
 pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t tmp_mtx = PTHREAD_MUTEX_INITIALIZER;
@@ -542,7 +577,9 @@ int MP4CreateFirstTime(int height, int width, string output_dir) {
 }
 
 void MergeThread(void *_Frames) {
+    // Convert the void* argument to a queue<EnumeratedFrame*>**
     queue<EnumeratedFrame *> **FramesQueue = (queue<EnumeratedFrame *> **) _Frames;
+
     EnumeratedFrame *e_frames[3];
     cv::Mat Frames[3], res;
     cuda::GpuMat cudaFSI;
