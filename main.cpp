@@ -136,26 +136,26 @@ void set_output_dir() {
     dirent *ent;
     struct stat validator;
     int i = 0, output_i;
-    output_dir = string("/media/mic-730ai/");
+    output_dir = string("/home/mic-730ai/Desktop/JAI_Results");
     string target_dir;
     cout << "choose output device" << endl;
-    if ((dir = opendir(output_dir.c_str())) != NULL)
-        while ((ent = readdir(dir)) != NULL)
-            if (strcmp(ent->d_name, ".") & strcmp(ent->d_name, "..") != 0)
-                cout << "\t" << ++i << " - " << ent->d_name << endl;
-    i = 0;
-    cin >> output_i;
-    cout << "Enter final directory name (default is Acquisition)" << endl;
-    cin >> target_dir;
-    if (target_dir.empty())
-        target_dir = string("Acquisition");
-    target_dir = string("/") + target_dir;
-    if ((dir = opendir(output_dir.c_str())) != NULL)
-        while ((ent = readdir(dir)) != NULL)
-            if ((strcmp(ent->d_name, ".") & strcmp(ent->d_name, "..") != 0) and ++i == output_i) {
-                output_dir += string(ent->d_name) + target_dir;
-                break;
-            }
+//    if ((dir = opendir(output_dir.c_str())) != NULL)
+//        while ((ent = readdir(dir)) != NULL)
+//            if (strcmp(ent->d_name, ".") & strcmp(ent->d_name, "..") != 0)
+//                cout << "\t" << ++i << " - " << ent->d_name << endl;
+//    i = 0;
+//    cin >> output_i;
+//    cout << "Enter final directory name (default is Acquisition)" << endl;
+//    cin >> target_dir;
+//    if (target_dir.empty())
+//        target_dir = string("Acquisition");
+//    target_dir = string("/") + target_dir;
+//    if ((dir = opendir(output_dir.c_str())) != NULL)
+//        while ((ent = readdir(dir)) != NULL)
+//            if ((strcmp(ent->d_name, ".") & strcmp(ent->d_name, "..") != 0) and ++i == output_i) {
+//                output_dir += string(ent->d_name) + target_dir;
+//                break;
+//            }
 
     if (stat(output_dir.c_str(), &validator) != 0) {
         mkdir(output_dir.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
@@ -245,7 +245,7 @@ void setup_ZED(int file_index) {
 
 int main() {
     cout << "**************** CODEC: nvv4l2h265enc ****************" << endl;
-    cout << "**************** bitrate: 8M ****************" << endl << endl;
+    cout << "**************** bitrate: 25M ****************" << endl << endl;
 
     PvDevice *lDevice = NULL;
     PvStream *lStreams[3] = {NULL, NULL, NULL};
@@ -255,7 +255,7 @@ int main() {
 
     config = json::parse(config_file);
 
-    pthread_cond_init(&GrabEvent, NULL);
+    pthread_cond_init(&GrabEvent, NULL)
 
     PV_SAMPLE_INIT();
 
@@ -498,7 +498,7 @@ void GrabThread(void *_StreamInfo) {
                 pthread_mutex_unlock(&mtx);
             } else {
                 lStream->QueueBuffer(lBuffer);
-//                cout << StreamIndex << ": OPR - FAILURE" << endl;
+                cout << StreamIndex << ": OPR - FAILURE" << endl;
             }
             // Re-queue the buffer in the stream object
         } else {
@@ -516,26 +516,28 @@ int MP4CreateFirstTime(int height, int width, string output_dir) {
     if (!mp4_init) {
         int i = 0;
         char f_fsi[100], stat_name[100];
-//        char f_rgb[100], f_800[100], f_975[100];
+        char f_rgb[100], f_800[100], f_975[100];
         struct stat buffer;
         do {
             i++;
             sprintf(stat_name, (output_dir + string("/Result_FSI_%d.mkv")).c_str(), i);
             sprintf(f_fsi, (string("\"") + output_dir + string("/Result_FSI_%d.mkv\"")).c_str(), i);
-//            sprintf(f_rgb, (string("\"") + output_dir + string("/Result_RGB_%d.mkv\"")).c_str(), i);
-//            sprintf(f_800, (string("\"") + output_dir + string("/Result_800_%d.mkv\"")).c_str(), i);
-//            sprintf(f_975, (string("\"") + output_dir + string("/Result_975_%d.mkv\"")).c_str(), i);
+            sprintf(f_rgb, (string("\"") + output_dir + string("/Result_RGB_%d.mkv\"")).c_str(), i);
+            sprintf(f_800, (string("\"") + output_dir + string("/Result_800_%d.mkv\"")).c_str(), i);
+            sprintf(f_975, (string("\"") + output_dir + string("/Result_975_%d.mkv\"")).c_str(), i);
         } while (stat(stat_name, &buffer) == 0);
 
         string gst_3c = string("appsrc ! video/x-raw, format=BGR, width=(int)") + to_string(width) + string(", height=(int)") +
                         to_string(height) + string(", framerate=(fraction)") + to_string(FPS) +
                         string("/1 ! queue ! videoconvert ! video/x-raw,format=BGRx ! nvvidconv ! "
-                               "nvv4l2h265enc bitrate=8000000 ! h265parse ! matroskamux ! filesink location=");
+                               "nvv4l2h265enc bitrate=15000000 ! h265parse ! matroskamux ! filesink location=");
+        // x265 encoder
+//        string gst_3c = string("appsrc ! videoconvert ! x265enc ! h265parse ! matroskamux ! filesink location=");
         string gst_1c = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=");
-        string gs_fsi = gst_3c + f_fsi, fs_rgb = gst_3c + f_rgb;
+        string gs_fsi = gst_3c + f_fsi, gs_rgb = gst_3c + f_rgb;
         string gs_800 = gst_1c + f_800, gs_975 = gst_1c + f_975;
 
-        mp4_FSI.open(gs_fsi, VideoWriter::fourcc('H', '2', '6', '4'), FPS, cv::Size(width, height));
+        mp4_FSI.open(gs_fsi, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
         mp4_BGR.open(gs_rgb, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
         mp4_800.open(gs_800, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
         mp4_975.open(gs_975, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
