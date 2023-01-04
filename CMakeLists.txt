@@ -158,15 +158,19 @@ endif()
 
 find_package(ZED 3 REQUIRED)
 find_package(CUDA ${ZED_CUDA_VERSION} REQUIRED)
-
 INCLUDE_DIRECTORIES(/opt/jai/ebus_sdk/linux-aarch64-arm/include)
 INCLUDE_DIRECTORIES(${CUDA_INCLUDE_DIRS})
 INCLUDE_DIRECTORIES(${ZED_INCLUDE_DIRS})
+#INCLUDE_DIRECTORIES(/home/mic-730ai/miniconda3/include/python3.9/)
+INCLUDE_DIRECTORIES(/home/mic-730ai/miniconda3/envs/fsCounter/include/python3.10)
 
 LINK_DIRECTORIES(${ZED_LIBRARY_DIR})
 LINK_DIRECTORIES(${CUDA_LIBRARY_DIRS})
+#LINK_DIRECTORIES(/home/mic-730ai/miniconda3/lib/python3.9/)
+LINK_DIRECTORIES(/home/mic-730ai/miniconda3/envs/fsCounter/lib)
 
 ADD_EXECUTABLE(${PROJECT_NAME} main.cpp)
+ADD_LIBRARY(jaized_acquisition main.cpp)
 
 if (LINK_SHARED_ZED)
     SET(ZED_LIBS ${ZED_LIBRARIES} ${CUDA_CUDA_LIBRARY} ${CUDA_CUDART_LIBRARY})
@@ -177,3 +181,5 @@ endif()
 TARGET_LINK_LIBRARIES(${PROJECT_NAME} ${ZED_LIBS})
 TARGET_LINK_LIBRARIES( ${PROJECT_NAME} ${OpenCV_LIBS} )
 TARGET_LINK_LIBRARIES( ${PROJECT_NAME} ${eBus_LIBRARIES} )
+#TARGET_LINK_LIBRARIES( ${PROJECT_NAME} /home/mic-730ai/miniconda3/lib/libpython3.9.so )
+TARGET_LINK_LIBRARIES( ${PROJECT_NAME} /home/mic-730ai/miniconda3/envs/fsCounter/lib/libpython3.10.so )
