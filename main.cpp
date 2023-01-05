@@ -236,17 +236,13 @@ void setup_ZED(int file_index) {
     sprintf(zed_filename, (output_dir + string("/ZED_%d.svo")).c_str(), file_index);
 
     RecordingParameters params(zed_filename, SVO_COMPRESSION_MODE::H265);
-    err = zed.enableRecording(params);
-    if (err != ERROR_CODE::SUCCESS) {
-        std::cout << toString(err) << std::endl;
-        exit(-1);
+    if (output_svo) {
+        err = zed.enableRecording(params);
+        if (err != ERROR_CODE::SUCCESS) {
+            std::cout << toString(err) << std::endl;
+            exit(-1);
+        }
     }
-
-
-    zed.setCameraSettings(VIDEO_SETTINGS::GAIN, -1);
-    zed.setCameraSettings(VIDEO_SETTINGS::EXPOSURE, -1);
-    cout << zed.getCameraSettings(VIDEO_SETTINGS::GAIN) << endl;
-    cout << zed.getCameraSettings(VIDEO_SETTINGS::EXPOSURE) << endl;
 }
 
 void parse_args(int argc, char *argv[]){
@@ -281,7 +277,7 @@ void sigterm_handler(int signum) {
 
 int main(int argc, char* argv[]) {
     cout << "**************** CODEC: nvv4l2h265enc ****************" << endl;
-    cout << "**************** bitrate: 25M ****************" << endl << endl;
+    cout << "**************** bitrate: 15M ****************" << endl << endl;
 
     parse_args(argc, argv);
     signal(SIGTERM, sigterm_handler);
@@ -348,10 +344,14 @@ int main(int argc, char* argv[]) {
     zed_t.join();
     merge_t.join();
 
-    mp4_FSI.release();
-    mp4_BGR.release();
-    mp4_800.release();
-    mp4_975.release();
+    if (output_fsi)
+        mp4_FSI.release();
+    if (output_rgb)
+        mp4_BGR.release();
+    if (output_800)
+        mp4_800.release();
+    if (output_975)
+        mp4_975.release();
 
 
     // Tell the device to stop sending images + disable streaming
@@ -469,7 +469,8 @@ void ZedThread(int file_index) {
             outfile << "ZED FRAME DROP - FRAME NO. " << i << endl;
     }
 
-    zed.disableRecording();
+    if (output_svo)
+        zed.disableRecording();
     zed.close();
     cout << "ZED ACQUISITION END" << endl;
 }
@@ -532,20 +533,28 @@ void GrabThread(void *_StreamInfo) {
     cout << StreamIndex << ": Acquisition end with " << CurrentBlockID << endl;
 }
 
+bool exists(char path[100]){
+    struct stat buffer;
+    return stat(path, &buffer) == 0;
+}
+
 int MP4CreateFirstTime(int height, int width, string output_dir) {
     if (!mp4_init) {
+        bool is_exist = false;
         int i = 0;
-        char f_fsi[100], stat_name[100];
-        char f_rgb[100], f_800[100], f_975[100];
-        struct stat buffer;
+        char stat_FSI[100], stat_RGB[100], stat_800[100], stat_975[100], stat_SVO[100];
+        char f_fsi[100], f_rgb[100], f_800[100], f_975[100];
+
+        if (not(save_FSI or save_RGB or save_800 or save_975))
+            return -1;
         do {
-            i++;
-            sprintf(stat_name, (output_dir + string("/Result_FSI_%d.mkv")).c_str(), i);
-            sprintf(f_fsi, (string("\"") + output_dir + string("/Result_FSI_%d.mkv\"")).c_str(), i);
-            sprintf(f_rgb, (string("\"") + output_dir + string("/Result_RGB_%d.mkv\"")).c_str(), i);
-            sprintf(f_800, (string("\"") + output_dir + string("/Result_800_%d.mkv\"")).c_str(), i);
-            sprintf(f_975, (string("\"") + output_dir + string("/Result_975_%d.mkv\"")).c_str(), i);
-        } while (stat(stat_name, &buffer) == 0);
+            sprintf(stat_FSI, (output_dir + string("/Result_FSI_%d.mkv")).c_str(), ++i);
+            sprintf(stat_RGB, (output_dir + string("/Result_RGB_%d.mkv")).c_str(), i);
+            sprintf(stat_800, (output_dir + string("/Result_800_%d.mkv")).c_str(), i);
+            sprintf(stat_975, (output_dir + string("/Result_975_%d.mkv")).c_str(), i);
+            sprintf(stat_SVO, (output_dir + string("/ZED_%d.mkv")).c_str(), ++i);
+            is_exist = exists(stat_FSI) || exists(stat_RGB) || exists(stat_800) || exists(stat_975) || exists(stat_SVO));
+        } while (is_exist);
 
         string gst_3c = string("appsrc ! video/x-raw, format=BGR, width=(int)") + to_string(width) + string(", height=(int)") +
                         to_string(height) + string(", framerate=(fraction)") + to_string(FPS) +
@@ -557,18 +566,23 @@ int MP4CreateFirstTime(int height, int width, string output_dir) {
         string gs_fsi = gst_3c + f_fsi, gs_rgb = gst_3c + f_rgb;
         string gs_800 = gst_1c + f_800, gs_975 = gst_1c + f_975;
 
-        mp4_FSI.open(gs_fsi, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
-        mp4_BGR.open(gs_rgb, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
-        mp4_800.open(gs_800, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
-        mp4_975.open(gs_975, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
-        /*
-        do {
-            sprintf(filename, "%s:\\Temp\\Result_RED_%d.mkv", SelectedDrive.c_str(), i);
-            i++;
-        } while (stat(filename, &buffer) == 0);
+        if (output_fsi) {
+            sprintf(f_fsi, (string("\"") + output_dir + string("/Result_FSI_%d.mkv\"")).c_str(), i);
+            mp4_FSI.open(gs_fsi, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
+        }
+        if (output_rgb) {
+            sprintf(f_rgb, (string("\"") + output_dir + string("/Result_RGB_%d.mkv\"")).c_str(), i);
+            mp4_BGR.open(gs_rgb, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
+        }
+        if (output_800) {
+            sprintf(f_800, (string("\"") + output_dir + string("/Result_800_%d.mkv\"")).c_str(), i);
+            mp4_800.open(gs_800, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
+        }
+        if (output_975) {
+            sprintf(f_975, (string("\"") + output_dir + string("/Result_975_%d.mkv\"")).c_str(), i);
+            mp4_975.open(gs_975, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
+        }
 
-        mp4_RED = VideoWriter(filename, VideoWriter::fourcc('h', '2', '6', '4'), FPS, cv::Size(width, height), false);
-        */
         mp4_init = true;
         cout << endl << endl << "---- Video capturing started ----" << endl;
 
@@ -647,10 +661,14 @@ void MergeThread(void *_Frames) {
         TickMeter t;
         t.start();
 
-        mp4_FSI.write(res_fsi);
-        mp4_BGR.write(res_bgr);
-        mp4_800.write(res_800);
-        mp4_975.write(res_975);
+        if (output_fsi)
+            mp4_FSI.write(res_fsi);
+        if (output_rgb)
+            mp4_BGR.write(res_bgr);
+        if (output_800)
+            mp4_800.write(res_800);
+        if (output_975)
+            mp4_975.write(res_975);
 
         t.stop();
         elapsed = t.getTimeMilli();
