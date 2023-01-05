@@ -58,8 +58,6 @@ void MergeThread(void *_Frames);
 
 int MP4CreateFirstTime(int height, int width, string output_dir);
 
-void Display(PvBuffer *aBuffer);
-
 void ConfigureStream(PvDevice *aDevice, PvStream *aStream, int channel);
 
 typedef struct {
@@ -75,9 +73,16 @@ typedef struct {
 
 void set_output_dir();
 
-bool setup_JAI(StreamInfo **&MyStreamInfos, PvDevice *&lDevice, BufferList *&lBufferLists);
+bool SelectDeviceLocally(PvString *aConnectionID);
+
+bool setup_JAI(StreamInfo *MyStreamInfos[3], PvDevice *&lDevice, BufferList lBufferLists[3]);
 
 void setup_ZED(int file_index);
+
+void parse_args(int argc, char* argv[]);
+
+void sigterm_handler(int signum);
+
 
 pthread_cond_t GrabEvent = PTHREAD_COND_INITIALIZER, MergeFramesEvent[3];
 pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
@@ -87,35 +92,17 @@ ofstream outfile;
 json config;
 string output_dir;
 
-
 bool _abort = false, mp4_init = false;
 float avg_coloring = 0;
 int frame_count = 0;
 PvDisplayWndMap mDisplays;
 PvString mSource;
 int FPS = 15;
+bool view = false;
+bool output_fsi = false, output_rgb = false, output_800 = false, output_975 = false, output_svo = false;
 int64_t width, height;
 Camera zed;
 TickMeter t0;
-
-
-std::string getCurrentTimestamp() {
-    using std::chrono::system_clock;
-    auto currentTime = std::chrono::system_clock::now();
-    char buffer[80];
-
-    auto transformed = currentTime.time_since_epoch().count() / 1000000;
-
-    auto millis = transformed % 1000;
-
-    std::time_t tt;
-    tt = system_clock::to_time_t(currentTime);
-    auto timeinfo = localtime(&tt);
-    strftime(buffer, 80, "%F %H:%M:%S", timeinfo);
-    sprintf(buffer, "%s:%03d", buffer, (int) millis);
-
-    return std::string(buffer);
-}
 
 void ConfigureStream(PvDevice *aDevice, PvStream *aStream, int channel) {
     // If this is a GigE Vision device, configure GigE Vision specific streaming parameters
@@ -163,32 +150,51 @@ void set_output_dir() {
     }
 }
 
+bool SelectDeviceLocally(PvString *aConnectionID)
+{
+    PvResult lResult;
+    const PvDeviceInfo *lSelectedDI = NULL;
+    PvSystem lSystem;
+
+        lSystem.Find();
+
+        // Detect, select device
+        vector<const PvDeviceInfo *> lDIVector;
+        for ( uint32_t i = 0; i < lSystem.GetInterfaceCount(); i++ ) {
+            const PvInterface *lInterface = dynamic_cast<const PvInterface *>( lSystem.GetInterface( i ) );
+            if ( lInterface != NULL ) {
+                for ( uint32_t j = 0; j < lInterface->GetDeviceCount(); j++ ) {
+                    const PvDeviceInfo *lDI = dynamic_cast<const PvDeviceInfo *>( lInterface->GetDeviceInfo( j ) );
+                    if ( lDI != NULL ){
+                        lDIVector.push_back( lDI );
+                    }
+                }
+            }
+        }
+
+        // Read device selection, optional new IP address.
+        uint32_t lIndex = 0;
+        if ( lIndex == lDIVector.size() )
+            // Abort the selection process
+            return false;
+        else if ( lIndex < lDIVector.size() )
+            // The device is selected
+            lSelectedDI = lDIVector[ lIndex ];
+
+    *aConnectionID = lSelectedDI->GetConnectionID();
+    return true;
+}
+
+
 bool setup_JAI(StreamInfo *MyStreamInfos[3], PvDevice *&lDevice, BufferList lBufferLists[3]) {
     PvString lConnectionID;
     bool test_streaming = true;
-    json jai_config = config["JAI"];
-    if (PvSelectDevice(&lConnectionID)) {
+    if (SelectDeviceLocally(&lConnectionID)) {
         lDevice = ConnectToDevice(lConnectionID);
         if (lDevice != NULL) {
             PvGenParameterArray *lDeviceParams = lDevice->GetParameters();
             PvStream *lStreams[3] = {NULL, NULL, NULL};
 
-            for (auto it = jai_config.begin(); it != jai_config.end(); ++it) {
-                string key = it.key();
-                auto value = it.value();
-                if (value.is_number_integer()) {
-                    int v = value.get<int>();
-                    //                    lDeviceParams->SetIntegerValue(key, v);
-                }
-                if (value.is_number_float()) {
-                    double v = value.get<double>();
-                    //                    lDeviceParams->SetFloatValue(key, v);
-                }
-                if (value.is_string()) {
-                    string v = value.get<string>();
-                    //                    lDeviceParams->SetEnumValue(key, v);
-                }
-            }
             lDevice->GetParameters()->SetFloatValue("AcquisitionFrameRate", FPS);
             lDevice->GetParameters()->GetIntegerValue("Width", width);
             lDevice->GetParameters()->GetIntegerValue("Height", height);
@@ -243,9 +249,42 @@ void setup_ZED(int file_index) {
     cout << zed.getCameraSettings(VIDEO_SETTINGS::EXPOSURE) << endl;
 }
 
-int main() {
+void parse_args(int argc, char *argv[]){
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "--fps" or arg == "--FPS") FPS = std::stoi(argv[++i]);
+        else if (arg == "--output-fsi") output_fsi = true;
+        else if (arg == "--output-rgb") output_rgb = true;
+        else if (arg == "--output-800") output_800 = true;
+        else if (arg == "--output-975") output_975 = true;
+        else if (arg == "--output-svo") output_svo = true;
+        else if (arg == "--view") view = true;
+    }
+
+    std::cout << "FPS: " << FPS << std::endl;
+    if (view)
+        std::cout << "view mode: on" << std::endl;
+    else {
+        std::cout << "view mode: off" << std::endl;
+        std::cout << "output-fsi: " << std::boolalpha << output_fsi << std::endl;
+        std::cout << "output-rgb: " << std::boolalpha << output_rgb << std::endl;
+        std::cout << "output-800: " << std::boolalpha << output_800 << std::endl;
+        std::cout << "output-975: " << std::boolalpha << output_975 << std::endl;
+        std::cout << "output-svo: " << std::boolalpha << output_svo << std::endl;
+    }
+}
+
+void sigterm_handler(int signum) {
+    _abort = true;
+    cout << "sigterm handled" << endl;
+}
+
+int main(int argc, char* argv[]) {
     cout << "**************** CODEC: nvv4l2h265enc ****************" << endl;
     cout << "**************** bitrate: 25M ****************" << endl << endl;
+
+    parse_args(argc, argv);
+    signal(SIGTERM, sigterm_handler);
 
     PvDevice *lDevice = NULL;
     PvStream *lStreams[3] = {NULL, NULL, NULL};
@@ -266,80 +305,61 @@ int main() {
 
     if (!setup_JAI(MyStreamInfos, lDevice, lBufferLists))
         exit(-1);
-    while (1) {
-        _abort = false;
-        mp4_init = false;
+    _abort = false;
+    mp4_init = false;
 
-        cout << "Press Enter to continue, press 'q' and then Enter to exit..." << endl;
-        char c = cin.get();
-        if (c == 'q')
-            break;
+    // Get device parameters need to control streaming
+    PvGenParameterArray *lDeviceParams = lDevice->GetParameters();
 
-        cout << 1 << endl;
-        // Get device parameters need to control streaming
-        PvGenParameterArray *lDeviceParams = lDevice->GetParameters();
-        cout << 2 << endl;
+    // Map the GenICam AcquisitionStart and AcquisitionStop commands
+    PvGenCommand *lStart = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStart"));
+    PvGenCommand *lStop = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStop"));
 
-        // Map the GenICam AcquisitionStart and AcquisitionStop commands
-        PvGenCommand *lStart = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStart"));
-        PvGenCommand *lStop = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStop"));
-
-        queue<EnumeratedFrame *> *Frames[3] = {&(MyStreamInfos[0]->Frames), &(MyStreamInfos[1]->Frames),
-                                               &(MyStreamInfos[2]->Frames)};
-        cout << 3 << endl;
-        lDevice->StreamEnable();
-        int file_index = MP4CreateFirstTime(height, width, output_dir);
+    queue<EnumeratedFrame *> *Frames[3] = {&(MyStreamInfos[0]->Frames), &(MyStreamInfos[1]->Frames),
+                                           &(MyStreamInfos[2]->Frames)};
+    cout << 3 << endl;
+    lDevice->StreamEnable();
+    int file_index = MP4CreateFirstTime(height, width, output_dir);
 
 
-        char log_filename[100];
-        sprintf(log_filename, (output_dir + string("/frame_drop_%d.log")).c_str(), file_index);
-        outfile.open(log_filename, std::ios_base::app); // append instead of overwrite
+    char log_filename[100];
+    sprintf(log_filename, (output_dir + string("/frame_drop_%d.log")).c_str(), file_index);
+    outfile.open(log_filename, std::ios_base::app); // append instead of overwrite
 
-        // Enable streaming and send the AcquisitionStart command
+    // Enable streaming and send the AcquisitionStart command
 
-        setup_ZED(file_index);
+    setup_ZED(file_index);
 
-        cout << "Enabling streaming and sending AcquisitionStart command." << endl;
-        t0.start();
-        thread zed_t(ZedThread, file_index);
+    cout << "Enabling streaming and sending AcquisitionStart command." << endl;
+    t0.start();
+    thread zed_t(ZedThread, file_index);
 
-        lStart->Execute();
-        thread jai_t1(GrabThread, (void *) MyStreamInfos[0]);
-        thread jai_t2(GrabThread, (void *) MyStreamInfos[1]);
-        thread jai_t3(GrabThread, (void *) MyStreamInfos[2]);
-        thread merge_t(MergeThread, (void *) Frames);
+    lStart->Execute();
+    thread jai_t1(GrabThread, (void *) MyStreamInfos[0]);
+    thread jai_t2(GrabThread, (void *) MyStreamInfos[1]);
+    thread jai_t3(GrabThread, (void *) MyStreamInfos[2]);
+    thread merge_t(MergeThread, (void *) Frames);
 
-        cout << "Press Enter to terminate acquisition" << endl;
-        cin.get();
+    // it won't pass the joins until _abort will be set to true and this could only happen if SIGTERM is received
 
-        _abort = true;
+    jai_t1.join();
+    jai_t2.join();
+    jai_t3.join();
+    zed_t.join();
+    merge_t.join();
 
-        jai_t1.join();
-        jai_t2.join();
-        jai_t3.join();
-        cout << "JAI THREAD END" << endl;
+    mp4_FSI.release();
+    mp4_BGR.release();
+    mp4_800.release();
+    mp4_975.release();
 
-        zed_t.join();
-        cout << "ZED THREAD END" << endl;
-        merge_t.join();
-        cout << "MERGE THREAD END" << endl;
 
-        mp4_FSI.release();
-        mp4_BGR.release();
-        mp4_800.release();
-        mp4_975.release();
+    // Tell the device to stop sending images + disable streaming
+    lStop->Execute();
+    lDevice->StreamDisable();
 
-        cout << "WRITE: " << avg_coloring / frame_count << endl;
-
-        // Tell the device to stop sending images.
-        cout << "Sending AcquisitionStop command to the device" << endl;
-        lStop->Execute();
-
-        // Disable streaming on the device
-        cout << "Disable streaming on the controller." << endl;
-        lDevice->StreamDisable();
-        outfile.close();
-    }
+    // close frame drop log file
+    outfile.close();
 
     // Abort all buffers from the streams and dequeue
     cout << "Aborting buffers still in streams" << endl << "closing streams" << endl;
@@ -637,37 +657,4 @@ void MergeThread(void *_Frames) {
         avg_coloring += elapsed;
     }
     cout << "MERGE END" << endl;
-}
-
-PvDisplayWnd *GetDisplay(const string &aName) {
-    PvDisplayWndMap::iterator lIt = mDisplays.find(aName);
-    if (lIt != mDisplays.end()) {
-        return lIt->second;
-    }
-
-    // Create new display
-    PvDisplayWnd *lDisplay = new PvDisplayWnd;
-    if (lDisplay == NULL) {
-        return NULL;
-    }
-
-    // Store display in map
-    mDisplays[aName] = lDisplay;
-
-    // Setup display
-    // lDisplay->ShowModeless();
-    lDisplay->SetTitle(aName.c_str());
-
-    return lDisplay;
-}
-
-// Attempts to display the content of a buffer
-void Display(PvBuffer *aBuffer) {
-    stringstream lSS1;
-    lSS1 << mSource.GetAscii();
-    string lName = lSS1.str();
-
-    PvDisplayWnd *lDisplay = GetDisplay(lName);
-    lDisplay->Display(aBuffer->GetImage());
-    // lDisplay->DoEvents();
 }
