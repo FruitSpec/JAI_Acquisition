@@ -91,7 +91,6 @@ string output_dir;
 bool _abort = false, mp4_init = false;
 float avg_coloring = 0;
 int frame_count = 0;
-PvDisplayWndMap mDisplays;
 PvString mSource;
 int FPS = 15;
 int64_t width, height;
@@ -454,6 +453,51 @@ void ZedThread(int file_index) {
     cout << "ZED ACQUISITION END" << endl;
 }
 
+int MP4CreateFirstTime(int height, int width, string output_dir) {
+    if (!mp4_init) {
+        int i = 0;
+        char f_fsi[100], stat_name[100];
+        char f_rgb[100], f_800[100], f_975[100];
+        struct stat buffer;
+        do {
+            i++;
+            sprintf(stat_name, (output_dir + string("/Result_FSI_%d.mkv")).c_str(), i);
+            sprintf(f_fsi, (string("\"") + output_dir + string("/Result_FSI_%d.mkv\"")).c_str(), i);
+            sprintf(f_rgb, (string("\"") + output_dir + string("/Result_RGB_%d.mkv\"")).c_str(), i);
+            sprintf(f_800, (string("\"") + output_dir + string("/Result_800_%d.mkv\"")).c_str(), i);
+            sprintf(f_975, (string("\"") + output_dir + string("/Result_975_%d.mkv\"")).c_str(), i);
+        } while (stat(stat_name, &buffer) == 0);
+
+        string gst_3c = string("appsrc ! video/x-raw, format=BGR, width=(int)") + to_string(width) + string(", height=(int)") +
+                        to_string(height) + string(", framerate=(fraction)") + to_string(FPS) +
+                        string("/1 ! queue ! videoconvert ! video/x-raw,format=BGRx ! nvvidconv ! "
+                               "nvv4l2h265enc bitrate=15000000 ! h265parse ! matroskamux ! filesink location=");
+        // x265 encoder
+//        string gst_3c = string("appsrc ! videoconvert ! x265enc ! h265parse ! matroskamux ! filesink location=");
+        string gst_1c = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=");
+        string gs_fsi = gst_3c + f_fsi, gs_rgb = gst_3c + f_rgb;
+        string gs_800 = gst_1c + f_800, gs_975 = gst_1c + f_975;
+
+        mp4_FSI.open(gs_fsi, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
+        mp4_BGR.open(gs_rgb, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
+        mp4_800.open(gs_800, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
+        mp4_975.open(gs_975, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
+        /*
+        do {
+            sprintf(filename, "%s:\\Temp\\Result_RED_%d.mkv", SelectedDrive.c_str(), i);
+            i++;
+        } while (stat(filename, &buffer) == 0);
+
+        mp4_RED = VideoWriter(filename, VideoWriter::fourcc('h', '2', '6', '4'), FPS, cv::Size(width, height), false);
+        */
+        mp4_init = true;
+        cout << endl << endl << "---- Video capturing started ----" << endl;
+
+        return i;
+    }
+    return -1;
+}
+
 void GrabThread(void *_StreamInfo) {
     uint64_t PrevBlockID = 0;
     StreamInfo *MyStreamInfo = (StreamInfo *) _StreamInfo;
@@ -514,51 +558,6 @@ void GrabThread(void *_StreamInfo) {
         // SetEvent(MergeFramesEvent[StreamIndex]); // signals the MergeThread that the output from current stream is ready
     }
     cout << StreamIndex << ": Acquisition end with " << CurrentBlockID << endl;
-}
-
-int MP4CreateFirstTime(int height, int width, string output_dir) {
-    if (!mp4_init) {
-        int i = 0;
-        char f_fsi[100], stat_name[100];
-        char f_rgb[100], f_800[100], f_975[100];
-        struct stat buffer;
-        do {
-            i++;
-            sprintf(stat_name, (output_dir + string("/Result_FSI_%d.mkv")).c_str(), i);
-            sprintf(f_fsi, (string("\"") + output_dir + string("/Result_FSI_%d.mkv\"")).c_str(), i);
-            sprintf(f_rgb, (string("\"") + output_dir + string("/Result_RGB_%d.mkv\"")).c_str(), i);
-            sprintf(f_800, (string("\"") + output_dir + string("/Result_800_%d.mkv\"")).c_str(), i);
-            sprintf(f_975, (string("\"") + output_dir + string("/Result_975_%d.mkv\"")).c_str(), i);
-        } while (stat(stat_name, &buffer) == 0);
-
-        string gst_3c = string("appsrc ! video/x-raw, format=BGR, width=(int)") + to_string(width) + string(", height=(int)") +
-                        to_string(height) + string(", framerate=(fraction)") + to_string(FPS) +
-                        string("/1 ! queue ! videoconvert ! video/x-raw,format=BGRx ! nvvidconv ! "
-                               "nvv4l2h265enc bitrate=15000000 ! h265parse ! matroskamux ! filesink location=");
-        // x265 encoder
-//        string gst_3c = string("appsrc ! videoconvert ! x265enc ! h265parse ! matroskamux ! filesink location=");
-        string gst_1c = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=");
-        string gs_fsi = gst_3c + f_fsi, gs_rgb = gst_3c + f_rgb;
-        string gs_800 = gst_1c + f_800, gs_975 = gst_1c + f_975;
-
-        mp4_FSI.open(gs_fsi, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
-        mp4_BGR.open(gs_rgb, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
-        mp4_800.open(gs_800, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
-        mp4_975.open(gs_975, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
-        /*
-        do {
-            sprintf(filename, "%s:\\Temp\\Result_RED_%d.mkv", SelectedDrive.c_str(), i);
-            i++;
-        } while (stat(filename, &buffer) == 0);
-
-        mp4_RED = VideoWriter(filename, VideoWriter::fourcc('h', '2', '6', '4'), FPS, cv::Size(width, height), false);
-        */
-        mp4_init = true;
-        cout << endl << endl << "---- Video capturing started ----" << endl;
-
-        return i;
-    }
-    return -1;
 }
 
 void MergeThread(void *_Frames) {
@@ -650,37 +649,4 @@ void MergeThread(void *_Frames) {
         avg_coloring += elapsed;
     }
     cout << "MERGE END" << endl;
-}
-
-PvDisplayWnd *GetDisplay(const string &aName) {
-    PvDisplayWndMap::iterator lIt = mDisplays.find(aName);
-    if (lIt != mDisplays.end()) {
-        return lIt->second;
-    }
-
-    // Create new display
-    PvDisplayWnd *lDisplay = new PvDisplayWnd;
-    if (lDisplay == NULL) {
-        return NULL;
-    }
-
-    // Store display in map
-    mDisplays[aName] = lDisplay;
-
-    // Setup display
-    // lDisplay->ShowModeless();
-    lDisplay->SetTitle(aName.c_str());
-
-    return lDisplay;
-}
-
-// Attempts to display the content of a buffer
-void Display(PvBuffer *aBuffer) {
-    stringstream lSS1;
-    lSS1 << mSource.GetAscii();
-    string lName = lSS1.str();
-
-    PvDisplayWnd *lDisplay = GetDisplay(lName);
-    lDisplay->Display(aBuffer->GetImage());
-    // lDisplay->DoEvents();
 }
