@@ -459,6 +459,7 @@ void GrabThread(void *_StreamInfo) {
     StreamInfo *MyStreamInfo = (StreamInfo *) _StreamInfo;
     PvStream *lStream = (PvStream *) (MyStreamInfo->aStream);
     int StreamIndex = (MyStreamInfo->StreamIndex), height, width;
+    int stream_fail_count = 0;
     PvBuffer *lBuffer = NULL;
     char str[200];
 
@@ -484,6 +485,7 @@ void GrabThread(void *_StreamInfo) {
                 CurrentBlockID = lBuffer->GetBlockID();
                 if (CurrentBlockID != PrevBlockID + 1 and PrevBlockID != 0) {
                     outfile << "JAI STREAM " << StreamIndex << " - FRAME DROP - FRAME No. " << PrevBlockID << endl;
+                    stream_fail_count -= CurrentBlockID - (PrevBlockID + 1);
                 }
                 PrevBlockID = CurrentBlockID;
                 height = lBuffer->GetImage()->GetHeight(), width = lBuffer->GetImage()->GetWidth();
@@ -491,17 +493,19 @@ void GrabThread(void *_StreamInfo) {
                 lStream->QueueBuffer(lBuffer);
                 EnumeratedFrame *curr_frame = new EnumeratedFrame;
                 curr_frame->frame = frame;
-                curr_frame->BlockID = CurrentBlockID;
+                curr_frame->BlockID = CurrentBlockID + stream_fail_count;
                 pthread_mutex_lock(&mtx);
                 MyStreamInfo->Frames.push(curr_frame);
                 pthread_cond_signal(&MergeFramesEvent[StreamIndex]);
                 pthread_mutex_unlock(&mtx);
             } else {
+                stream_fail_count++;
                 lStream->QueueBuffer(lBuffer);
                 cout << StreamIndex << ": OPR - FAILURE" << endl;
             }
             // Re-queue the buffer in the stream object
         } else {
+            stream_fail_count++;
             cout << StreamIndex << ": BAD RESULT!" << endl;
             // Retrieve buffer failure
             cout << lResult.GetCodeString().GetAscii() << "\n";
@@ -559,26 +563,24 @@ int MP4CreateFirstTime(int height, int width, string output_dir) {
 
 void MergeThread(void *_Frames) {
     queue<EnumeratedFrame *> **FramesQueue = (queue<EnumeratedFrame *> **) _Frames;
-    EnumeratedFrame *e_frames[3];
     cv::Mat Frames[3], res;
     cuda::GpuMat cudaFSI;
     std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3), cudaFrames_equalized(3), cudaFrames_normalized(3);
     std::vector<cv::Mat> images(3);
-    uint64_t CurrentBlockID;
-    int size0, size1, size2;
+    uint64_t frame_no;
     double elapsed = 0;
     char filename[100];
     struct timespec max_wait = {0, 0};
+    EnumeratedFrame *e_frames[3] = {new EnumeratedFrame, new EnumeratedFrame, new EnumeratedFrame};
+    bool grabbed[3] = { false, false, false };
 
     cout << "MERGE THREAD START" << endl;
     sleep(1);
     pthread_cond_broadcast(&GrabEvent);
-    for (CurrentBlockID = 1; !_abort; CurrentBlockID++) {
-        int fnum;
+    for (frame_no = 1; !_abort; frame_no++) {
         for (int i = 0; i < 3; i++) {
-            e_frames[i] = new EnumeratedFrame;
             pthread_mutex_lock(&mtx);
-            while ((*(FramesQueue[i])).empty() and !_abort) {
+            while ((*(FramesQueue[i])).empty() and !grabbed[i] and !_abort) {
                 clock_gettime(CLOCK_REALTIME, &max_wait);
                 max_wait.tv_sec += 1;
                 const int timed_wait_rv = pthread_cond_timedwait(&MergeFramesEvent[i], &mtx, &max_wait);
@@ -587,9 +589,11 @@ void MergeThread(void *_Frames) {
                 pthread_mutex_unlock(&mtx);
                 break;
             }
-            e_frames[i] = (*(FramesQueue[i])).front();
-            Frames[i] = e_frames[i]->frame;
-            fnum = e_frames[i]->BlockID;
+            if (!grabbed[i]) {
+                e_frames[i] = (*(FramesQueue[i])).front();
+                Frames[i] = e_frames[i]->frame;
+            }
+            grabbed[i] = false;
             t0.stop();
 //            cout << "STREAM " << i << " POP " << fnum <<" AFTER " << t0.getTimeMilli() << endl;
             t0.start();
@@ -598,6 +602,15 @@ void MergeThread(void *_Frames) {
         }
         if (_abort)
             break;
+        if (e_frames[0]->BlockID != e_frames[1]->BlockID or e_frames[0]->BlockID != e_frames[2]->BlockID) {
+            int max_id = std::max({e_frames[0]->BlockID, e_frames[1]->BlockID, e_frames[2]->BlockID});
+            outfile << "MERGE DROP - AFTER FRAME NO. " << --frame_no << endl;
+            for (int i = 0; i < 3; i++) {
+                if (e_frames[i]->BlockID == max_id)
+                    grabbed[i] = true;
+            }
+            continue;
+        }
         cv::Mat res_fsi, res_bgr, res_800, res_975;
         // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV reffers to it as BayerBG - https://github.com/opencv/opencv/issues/19629
 
