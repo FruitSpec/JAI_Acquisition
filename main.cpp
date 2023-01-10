@@ -87,7 +87,7 @@ ofstream outfile;
 json config;
 string output_dir;
 
-
+bool save_all_channels = false;
 bool _abort = false, mp4_init = false;
 float avg_coloring = 0;
 int frame_count = 0;
@@ -134,28 +134,31 @@ void set_output_dir() {
     DIR *dir;
     dirent *ent;
     struct stat validator;
-    int i = 0, output_i;
-    output_dir = string("/home/mic-730ai/Desktop/JAI_Results");
+    int i = 0, output_i, dir_count = 0;
+    output_dir = string("/home/mic-730ai/Desktop");
+    string device_selector("/media/mic-730ai/");
+
     string target_dir;
     cout << "choose output device" << endl;
-//    if ((dir = opendir(output_dir.c_str())) != NULL)
-//        while ((ent = readdir(dir)) != NULL)
-//            if (strcmp(ent->d_name, ".") & strcmp(ent->d_name, "..") != 0)
-//                cout << "\t" << ++i << " - " << ent->d_name << endl;
-//    i = 0;
-//    cin >> output_i;
-//    cout << "Enter final directory name (default is Acquisition)" << endl;
-//    cin >> target_dir;
-//    if (target_dir.empty())
-//        target_dir = string("Acquisition");
-//    target_dir = string("/") + target_dir;
-//    if ((dir = opendir(output_dir.c_str())) != NULL)
-//        while ((ent = readdir(dir)) != NULL)
-//            if ((strcmp(ent->d_name, ".") & strcmp(ent->d_name, "..") != 0) and ++i == output_i) {
-//                output_dir += string(ent->d_name) + target_dir;
-//                break;
-//            }
-
+    cout << "\t" << ++i << " - Internal SSD (Desktop)" << endl;
+    if ((dir = opendir(device_selector.c_str())) != NULL)
+        while ((ent = readdir(dir)) != NULL)
+            if (strcmp(ent->d_name, ".") & strcmp(ent->d_name, "..") != 0)
+                cout << "\t" << ++i << " - " << ent->d_name << endl;
+    i = 1;
+    cin >> output_i;
+    cout << "Enter final directory name: " << endl;
+    cin >> target_dir;
+    if (target_dir.empty())
+        target_dir = string("JAI_Results");
+    target_dir = string("/") + target_dir;
+    if ((dir = opendir(device_selector.c_str())) != NULL)
+        while ((ent = readdir(dir)) != NULL)
+            if ((strcmp(ent->d_name, ".") & strcmp(ent->d_name, "..") != 0) and ++i == output_i) {
+                output_dir = device_selector + string(ent->d_name);
+                break;
+            }
+    output_dir += target_dir;
     if (stat(output_dir.c_str(), &validator) != 0) {
         mkdir(output_dir.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
         cout << output_dir << " Created!" << endl;
@@ -324,10 +327,11 @@ int main() {
         cout << "MERGE THREAD END" << endl;
 
         mp4_FSI.release();
-        mp4_BGR.release();
-        mp4_800.release();
-        mp4_975.release();
-
+        if (save_all_channels) {
+            mp4_BGR.release();
+            mp4_800.release();
+            mp4_975.release();
+        }
         cout << "WRITE: " << avg_coloring / frame_count << endl;
 
         // Tell the device to stop sending images.
@@ -479,9 +483,11 @@ int MP4CreateFirstTime(int height, int width, string output_dir) {
         string gs_800 = gst_1c + f_800, gs_975 = gst_1c + f_975;
 
         mp4_FSI.open(gs_fsi, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
-        mp4_BGR.open(gs_rgb, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
-        mp4_800.open(gs_800, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
-        mp4_975.open(gs_975, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
+        if (save_all_channels) {
+            mp4_BGR.open(gs_rgb, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
+            mp4_800.open(gs_800, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
+            mp4_975.open(gs_975, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
+        }
         /*
         do {
             sprintf(filename, "%s:\\Temp\\Result_RED_%d.mkv", SelectedDrive.c_str(), i);
@@ -507,7 +513,6 @@ void GrabThread(void *_StreamInfo) {
     PvBuffer *lBuffer = NULL;
     char str[200];
 
-
     PvResult lResult, lOperationResult;
     uint64_t CurrentBlockID = 0;
 
@@ -529,6 +534,7 @@ void GrabThread(void *_StreamInfo) {
                 CurrentBlockID = lBuffer->GetBlockID();
                 if (CurrentBlockID != PrevBlockID + 1 and PrevBlockID != 0) {
                     outfile << "JAI STREAM " << StreamIndex << " - FRAME DROP - FRAME No. " << PrevBlockID << endl;
+                    cout << "JAI STREAM " << StreamIndex << " - FRAME DROP - FRAME No. " << PrevBlockID << endl;
                     stream_fail_count -= CurrentBlockID - (PrevBlockID + 1);
                 }
                 PrevBlockID = CurrentBlockID;
@@ -537,7 +543,8 @@ void GrabThread(void *_StreamInfo) {
                 lStream->QueueBuffer(lBuffer);
                 EnumeratedFrame *curr_frame = new EnumeratedFrame;
                 curr_frame->frame = frame;
-                curr_frame->BlockID = CurrentBlockID + stream_fail_count;
+//                curr_frame->BlockID = CurrentBlockID + stream_fail_count;
+                curr_frame->BlockID = CurrentBlockID;
                 pthread_mutex_lock(&mtx);
                 MyStreamInfo->Frames.push(curr_frame);
                 pthread_cond_signal(&MergeFramesEvent[StreamIndex]);
@@ -545,7 +552,7 @@ void GrabThread(void *_StreamInfo) {
             } else {
                 stream_fail_count++;
                 lStream->QueueBuffer(lBuffer);
-                cout << StreamIndex << ": OPR - FAILURE" << endl;
+                cout << StreamIndex << ": OPR - FAILURE AFTER FRAME NO. " << CurrentBlockID << endl;
             }
             // Re-queue the buffer in the stream object
         } else {
@@ -604,6 +611,7 @@ void MergeThread(void *_Frames) {
         if (e_frames[0]->BlockID != e_frames[1]->BlockID or e_frames[0]->BlockID != e_frames[2]->BlockID) {
             int max_id = std::max({e_frames[0]->BlockID, e_frames[1]->BlockID, e_frames[2]->BlockID});
             outfile << "MERGE DROP - AFTER FRAME NO. " << --frame_no << endl;
+            cout << "MERGE DROP - AFTER FRAME NO. " << --frame_no << endl;
             for (int i = 0; i < 3; i++) {
                 if (e_frames[i]->BlockID == max_id)
                     grabbed[i] = true;
@@ -640,9 +648,11 @@ void MergeThread(void *_Frames) {
         t.start();
 
         mp4_FSI.write(res_fsi);
-        mp4_BGR.write(res_bgr);
-        mp4_800.write(res_800);
-        mp4_975.write(res_975);
+        if (save_all_channels) {
+            mp4_BGR.write(res_bgr);
+            mp4_800.write(res_800);
+            mp4_975.write(res_975);
+        }
 
         t.stop();
         elapsed = t.getTimeMilli();
