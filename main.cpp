@@ -97,7 +97,7 @@ float avg_coloring = 0;
 int frame_count = 0;
 PvDisplayWndMap mDisplays;
 PvString mSource;
-int FPS = 15;
+int FPS = 15, exposure_rgb = 500, exposure_800 = 1000, exposure_975 = 3000;
 bool view = false;
 bool output_fsi = false, output_rgb = false, output_800 = false, output_975 = false, output_svo = false;
 int64_t width, height;
@@ -195,6 +195,14 @@ bool setup_JAI(StreamInfo *MyStreamInfos[3], PvDevice *&lDevice, BufferList lBuf
             PvGenParameterArray *lDeviceParams = lDevice->GetParameters();
             PvStream *lStreams[3] = {NULL, NULL, NULL};
 
+            lDevice->GetParameters()->SetEnumValue("SourceSelector", "Source0");
+            lDevice->GetParameters()->SetFloatValue("ExposureAutoControlMax", exposure_rgb);
+            lDevice->GetParameters()->SetEnumValue("SourceSelector", "Source1");
+            lDevice->GetParameters()->SetFloatValue("ExposureAutoControlMax", exposure_800);
+            lDevice->GetParameters()->SetEnumValue("SourceSelector", "Source2");
+            lDevice->GetParameters()->SetFloatValue("ExposureAutoControlMax", exposure_975);
+            lDevice->GetParameters()->SetEnumValue("SourceSelector", "Source0");
+            lDevice->GetParameters()->SetFloatValue("AcquisitionFrameRate", FPS);
             lDevice->GetParameters()->SetFloatValue("AcquisitionFrameRate", FPS);
             lDevice->GetParameters()->GetIntegerValue("Width", width);
             lDevice->GetParameters()->GetIntegerValue("Height", height);
@@ -249,6 +257,9 @@ void parse_args(int argc, char *argv[]){
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--fps" or arg == "--FPS") FPS = std::stoi(argv[++i]);
+        if (arg == "--exposure-rgb") exposure_rgb = std::stoi(argv[++i]);
+        if (arg == "--exposure-800") exposure_800 = std::stoi(argv[++i]);
+        if (arg == "--exposure-975") exposure_975 = std::stoi(argv[++i]);
         else if (arg == "--output-fsi") output_fsi = true;
         else if (arg == "--output-rgb") output_rgb = true;
         else if (arg == "--output-800") output_800 = true;
@@ -644,7 +655,7 @@ int MP4CreateFirstTime(int height, int width, string output_dir) {
         char stat_FSI[100], stat_RGB[100], stat_800[100], stat_975[100], stat_SVO[100];
         char f_fsi[100], f_rgb[100], f_800[100], f_975[100];
 
-        if (not(save_FSI or save_RGB or save_800 or save_975))
+        if (not(output_fsi or output_rgb or output_800 or output_975))
             return -1;
         do {
             sprintf(stat_FSI, (output_dir + string("/Result_FSI_%d.mkv")).c_str(), ++i);
@@ -652,7 +663,7 @@ int MP4CreateFirstTime(int height, int width, string output_dir) {
             sprintf(stat_800, (output_dir + string("/Result_800_%d.mkv")).c_str(), i);
             sprintf(stat_975, (output_dir + string("/Result_975_%d.mkv")).c_str(), i);
             sprintf(stat_SVO, (output_dir + string("/ZED_%d.mkv")).c_str(), ++i);
-            is_exist = exists(stat_FSI) || exists(stat_RGB) || exists(stat_800) || exists(stat_975) || exists(stat_SVO));
+            is_exist = exists(stat_FSI) || exists(stat_RGB) || exists(stat_800) || exists(stat_975) || exists(stat_SVO);
         } while (is_exist);
 
         string gst_3c = string("appsrc ! video/x-raw, format=BGR, width=(int)") + to_string(width) + string(", height=(int)") +
