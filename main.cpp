@@ -480,6 +480,7 @@ void GrabThread(void *_StreamInfo) {
     StreamInfo *MyStreamInfo = (StreamInfo *) _StreamInfo;
     PvStream *lStream = (PvStream *) (MyStreamInfo->aStream);
     int StreamIndex = (MyStreamInfo->StreamIndex), height, width;
+    int stream_fail_count = 0;
     PvBuffer *lBuffer = NULL;
     char str[200];
 
@@ -505,6 +506,7 @@ void GrabThread(void *_StreamInfo) {
                 CurrentBlockID = lBuffer->GetBlockID();
                 if (CurrentBlockID != PrevBlockID + 1 and PrevBlockID != 0) {
                     outfile << "JAI STREAM " << StreamIndex << " - FRAME DROP - FRAME No. " << PrevBlockID << endl;
+                    stream_fail_count -= CurrentBlockID - (PrevBlockID + 1);
                 }
                 PrevBlockID = CurrentBlockID;
                 height = lBuffer->GetImage()->GetHeight(), width = lBuffer->GetImage()->GetWidth();
@@ -512,17 +514,19 @@ void GrabThread(void *_StreamInfo) {
                 lStream->QueueBuffer(lBuffer);
                 EnumeratedFrame *curr_frame = new EnumeratedFrame;
                 curr_frame->frame = frame;
-                curr_frame->BlockID = CurrentBlockID;
+                curr_frame->BlockID = CurrentBlockID + stream_fail_count;
                 pthread_mutex_lock(&mtx);
                 MyStreamInfo->Frames.push(curr_frame);
                 pthread_cond_signal(&MergeFramesEvent[StreamIndex]);
                 pthread_mutex_unlock(&mtx);
             } else {
+                stream_fail_count++;
                 lStream->QueueBuffer(lBuffer);
                 cout << StreamIndex << ": OPR - FAILURE" << endl;
             }
             // Re-queue the buffer in the stream object
         } else {
+            stream_fail_count++;
             cout << StreamIndex << ": BAD RESULT!" << endl;
             // Retrieve buffer failure
             cout << lResult.GetCodeString().GetAscii() << "\n";
@@ -531,6 +535,101 @@ void GrabThread(void *_StreamInfo) {
         // SetEvent(MergeFramesEvent[StreamIndex]); // signals the MergeThread that the output from current stream is ready
     }
     cout << StreamIndex << ": Acquisition end with " << CurrentBlockID << endl;
+}
+
+void MergeThread(void *_Frames) {
+    queue<EnumeratedFrame *> **FramesQueue = (queue<EnumeratedFrame *> **) _Frames;
+    cv::Mat Frames[3], res;
+    cuda::GpuMat cudaFSI;
+    std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3), cudaFrames_equalized(3), cudaFrames_normalized(3);
+    std::vector<cv::Mat> images(3);
+    uint64_t frame_no;
+    double elapsed = 0;
+    char filename[100];
+    struct timespec max_wait = {0, 0};
+    EnumeratedFrame *e_frames[3] = {new EnumeratedFrame, new EnumeratedFrame, new EnumeratedFrame};
+    bool grabbed[3] = { false, false, false };
+
+    cout << "MERGE THREAD START" << endl;
+    sleep(1);
+    pthread_cond_broadcast(&GrabEvent);
+    for (frame_no = 1; !_abort; frame_no++) {
+        for (int i = 0; i < 3; i++) {
+            pthread_mutex_lock(&mtx);
+            while ((*(FramesQueue[i])).empty() and !grabbed[i] and !_abort) {
+                clock_gettime(CLOCK_REALTIME, &max_wait);
+                max_wait.tv_sec += 1;
+                const int timed_wait_rv = pthread_cond_timedwait(&MergeFramesEvent[i], &mtx, &max_wait);
+            }
+            if (_abort) {
+                pthread_mutex_unlock(&mtx);
+                break;
+            }
+            if (!grabbed[i]) {
+                e_frames[i] = (*(FramesQueue[i])).front();
+                Frames[i] = e_frames[i]->frame;
+            }
+            grabbed[i] = false;
+            t0.stop();
+//            cout << "STREAM " << i << " POP " << fnum <<" AFTER " << t0.getTimeMilli() << endl;
+            t0.start();
+            (*(FramesQueue[i])).pop();
+            pthread_mutex_unlock(&mtx);
+        }
+        if (_abort)
+            break;
+        if (e_frames[0]->BlockID != e_frames[1]->BlockID or e_frames[0]->BlockID != e_frames[2]->BlockID) {
+            int max_id = std::max({e_frames[0]->BlockID, e_frames[1]->BlockID, e_frames[2]->BlockID});
+            outfile << "MERGE DROP - AFTER FRAME NO. " << --frame_no << endl;
+            for (int i = 0; i < 3; i++) {
+                if (e_frames[i]->BlockID == max_id)
+                    grabbed[i] = true;
+            }
+            continue;
+        }
+        cv::Mat res_fsi, res_bgr, res_800, res_975;
+        // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV reffers to it as BayerBG - https://github.com/opencv/opencv/issues/19629
+
+        cudaFrames[0].upload(Frames[0]); // channel 0 = BayerBG8
+        cudaFrames[2].upload(Frames[1]); // channel 1 = 800nm -> Red
+        cudaFrames[1].upload(Frames[2]); // channel 2 = 975nm -> Green
+
+        cv::cuda::demosaicing(cudaFrames[0], cudaFrames[0], cv::COLOR_BayerBG2BGR);
+        cv::cuda::split(cudaFrames[0], cudaBGR);
+        cudaFrames[0].download(res_bgr);
+        cudaFrames[2].download(res_800);
+        cudaFrames[1].download(res_975);
+
+        cudaFrames[0] = cudaBGR[0];
+
+        for (int i = 0; i < 3; i++) {
+            cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
+            cv::cuda::normalize(cudaFrames_equalized[i], cudaFrames_normalized[i], 0, 255, cv::NORM_MINMAX, CV_8U);
+        }
+        cv::cuda::merge(cudaFrames_normalized, cudaFSI);
+        cudaFSI.download(res_fsi);
+
+        frame_count++;
+        if (frame_count % (FPS * 30) == 0)
+            cout << endl << frame_count / (FPS * 60.0) << " minutes of video written" << endl << endl;
+
+        TickMeter t;
+        t.start();
+
+        if (output_fsi)
+            mp4_FSI.write(res_fsi);
+        if (output_rgb)
+            mp4_BGR.write(res_bgr);
+        if (output_800)
+            mp4_800.write(res_800);
+        if (output_975)
+            mp4_975.write(res_975);
+
+        t.stop();
+        elapsed = t.getTimeMilli();
+        avg_coloring += elapsed;
+    }
+    cout << "MERGE END" << endl;
 }
 
 bool exists(char path[100]){
@@ -589,90 +688,4 @@ int MP4CreateFirstTime(int height, int width, string output_dir) {
         return i;
     }
     return -1;
-}
-
-void MergeThread(void *_Frames) {
-    queue<EnumeratedFrame *> **FramesQueue = (queue<EnumeratedFrame *> **) _Frames;
-    EnumeratedFrame *e_frames[3];
-    cv::Mat Frames[3], res;
-    cuda::GpuMat cudaFSI;
-    std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3), cudaFrames_equalized(3), cudaFrames_normalized(3);
-    std::vector<cv::Mat> images(3);
-    uint64_t CurrentBlockID;
-    int size0, size1, size2;
-    double elapsed = 0;
-    char filename[100];
-    struct timespec max_wait = {0, 0};
-
-    cout << "MERGE THREAD START" << endl;
-    sleep(1);
-    pthread_cond_broadcast(&GrabEvent);
-    for (CurrentBlockID = 1; !_abort; CurrentBlockID++) {
-        int fnum;
-        for (int i = 0; i < 3; i++) {
-            e_frames[i] = new EnumeratedFrame;
-            pthread_mutex_lock(&mtx);
-            while ((*(FramesQueue[i])).empty() and !_abort) {
-                clock_gettime(CLOCK_REALTIME, &max_wait);
-                max_wait.tv_sec += 1;
-                const int timed_wait_rv = pthread_cond_timedwait(&MergeFramesEvent[i], &mtx, &max_wait);
-            }
-            if (_abort) {
-                pthread_mutex_unlock(&mtx);
-                break;
-            }
-            e_frames[i] = (*(FramesQueue[i])).front();
-            Frames[i] = e_frames[i]->frame;
-            fnum = e_frames[i]->BlockID;
-            t0.stop();
-//            cout << "STREAM " << i << " POP " << fnum <<" AFTER " << t0.getTimeMilli() << endl;
-            t0.start();
-            (*(FramesQueue[i])).pop();
-            pthread_mutex_unlock(&mtx);
-        }
-        if (_abort)
-            break;
-        cv::Mat res_fsi, res_bgr, res_800, res_975;
-        // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV reffers to it as BayerBG - https://github.com/opencv/opencv/issues/19629
-
-        cudaFrames[0].upload(Frames[0]); // channel 0 = BayerBG8
-        cudaFrames[2].upload(Frames[1]); // channel 1 = 800nm -> Red
-        cudaFrames[1].upload(Frames[2]); // channel 2 = 975nm -> Green
-
-        cv::cuda::demosaicing(cudaFrames[0], cudaFrames[0], cv::COLOR_BayerBG2BGR);
-        cv::cuda::split(cudaFrames[0], cudaBGR);
-        cudaFrames[0].download(res_bgr);
-        cudaFrames[2].download(res_800);
-        cudaFrames[1].download(res_975);
-
-        cudaFrames[0] = cudaBGR[0];
-
-        for (int i = 0; i < 3; i++) {
-            cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
-            cv::cuda::normalize(cudaFrames_equalized[i], cudaFrames_normalized[i], 0, 255, cv::NORM_MINMAX, CV_8U);
-        }
-        cv::cuda::merge(cudaFrames_normalized, cudaFSI);
-        cudaFSI.download(res_fsi);
-
-        frame_count++;
-        if (frame_count % (FPS * 30) == 0)
-            cout << endl << frame_count / (FPS * 60.0) << " minutes of video written" << endl << endl;
-
-        TickMeter t;
-        t.start();
-
-        if (output_fsi)
-            mp4_FSI.write(res_fsi);
-        if (output_rgb)
-            mp4_BGR.write(res_bgr);
-        if (output_800)
-            mp4_800.write(res_800);
-        if (output_975)
-            mp4_975.write(res_975);
-
-        t.stop();
-        elapsed = t.getTimeMilli();
-        avg_coloring += elapsed;
-    }
-    cout << "MERGE END" << endl;
 }
