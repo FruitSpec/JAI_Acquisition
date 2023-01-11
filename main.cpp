@@ -248,6 +248,7 @@ void setup_ZED(int file_index) {
 int main() {
     cout << "**************** CODEC: nvv4l2h265enc ****************" << endl;
     cout << "**************** bitrate: 25M ****************" << endl << endl;
+    cout << "**************** fixed JAI sync ****************" << endl << endl;
 
     PvDevice *lDevice = NULL;
     PvStream *lStreams[3] = {NULL, NULL, NULL};
