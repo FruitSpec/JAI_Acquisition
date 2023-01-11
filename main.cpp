@@ -532,6 +532,10 @@ void GrabThread(void *_StreamInfo) {
                 // We now have a valid buffer. This is where you would typically process the buffer.
 
                 CurrentBlockID = lBuffer->GetBlockID();
+                if (StreamIndex == 1 and CurrentBlockID % 43 == 0){
+                    cout << "STREAM 1 - SYNTHETIC FRAME DROP - FRAME NO. " << CurrentBlockID << endl;
+                    continue;
+                }
                 if (CurrentBlockID != PrevBlockID + 1 and PrevBlockID != 0) {
                     outfile << "JAI STREAM " << StreamIndex << " - FRAME DROP - FRAME No. " << PrevBlockID << endl;
                     cout << "JAI STREAM " << StreamIndex << " - FRAME DROP - FRAME No. " << PrevBlockID << endl;
@@ -586,7 +590,7 @@ void MergeThread(void *_Frames) {
     for (frame_no = 1; !_abort; frame_no++) {
         for (int i = 0; i < 3; i++) {
             pthread_mutex_lock(&mtx);
-            while ((*(FramesQueue[i])).empty() and !grabbed[i] and !_abort) {
+            while (!grabbed[i] and (*(FramesQueue[i])).empty() and !_abort) {
                 clock_gettime(CLOCK_REALTIME, &max_wait);
                 max_wait.tv_sec += 1;
                 const int timed_wait_rv = pthread_cond_timedwait(&MergeFramesEvent[i], &mtx, &max_wait);
@@ -598,12 +602,11 @@ void MergeThread(void *_Frames) {
             if (!grabbed[i]) {
                 e_frames[i] = (*(FramesQueue[i])).front();
                 Frames[i] = e_frames[i]->frame;
+                (*(FramesQueue[i])).pop();
             }
             grabbed[i] = false;
             t0.stop();
-//            cout << "STREAM " << i << " POP " << fnum <<" AFTER " << t0.getTimeMilli() << endl;
             t0.start();
-            (*(FramesQueue[i])).pop();
             pthread_mutex_unlock(&mtx);
         }
         if (_abort)
@@ -611,15 +614,17 @@ void MergeThread(void *_Frames) {
         if (e_frames[0]->BlockID != e_frames[1]->BlockID or e_frames[0]->BlockID != e_frames[2]->BlockID) {
             int max_id = std::max({e_frames[0]->BlockID, e_frames[1]->BlockID, e_frames[2]->BlockID});
             outfile << "MERGE DROP - AFTER FRAME NO. " << --frame_no << endl;
-            cout << "MERGE DROP - AFTER FRAME NO. " << --frame_no << endl;
-            for (int i = 0; i < 3; i++) {
-                if (e_frames[i]->BlockID == max_id)
-                    grabbed[i] = true;
+            cout << "MERGE DROP - AFTER FRAME NO. " << frame_no << endl;
+            for (int j = 0; j < 3; j++) {
+                if (e_frames[j]->BlockID == max_id) {
+                    grabbed[j] = true;
+                }
             }
             continue;
         }
         cv::Mat res_fsi, res_bgr, res_800, res_975;
         // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV reffers to it as BayerBG - https://github.com/opencv/opencv/issues/19629
+
 
         cudaFrames[0].upload(Frames[0]); // channel 0 = BayerBG8
         cudaFrames[2].upload(Frames[1]); // channel 1 = 800nm -> Red
@@ -657,6 +662,7 @@ void MergeThread(void *_Frames) {
         t.stop();
         elapsed = t.getTimeMilli();
         avg_coloring += elapsed;
+
     }
     cout << "MERGE END" << endl;
 }
