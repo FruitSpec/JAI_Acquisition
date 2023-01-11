@@ -579,12 +579,12 @@ void MergeThread(void *_Frames) {
             if (!grabbed[i]) {
                 e_frames[i] = (*(FramesQueue[i])).front();
                 Frames[i] = e_frames[i]->frame;
+                (*(FramesQueue[i])).pop();
             }
             grabbed[i] = false;
             t0.stop();
 //            cout << "STREAM " << i << " POP " << fnum <<" AFTER " << t0.getTimeMilli() << endl;
             t0.start();
-            (*(FramesQueue[i])).pop();
             pthread_mutex_unlock(&mtx);
         }
         if (_abort)
