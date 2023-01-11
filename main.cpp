@@ -509,7 +509,6 @@ void GrabThread(void *_StreamInfo) {
     StreamInfo *MyStreamInfo = (StreamInfo *) _StreamInfo;
     PvStream *lStream = (PvStream *) (MyStreamInfo->aStream);
     int StreamIndex = (MyStreamInfo->StreamIndex), height, width;
-    int stream_fail_count = 0;
     PvBuffer *lBuffer = NULL;
     char str[200];
 
@@ -532,14 +531,9 @@ void GrabThread(void *_StreamInfo) {
                 // We now have a valid buffer. This is where you would typically process the buffer.
 
                 CurrentBlockID = lBuffer->GetBlockID();
-                if (StreamIndex == 1 and CurrentBlockID % 43 == 0){
-                    cout << "STREAM 1 - SYNTHETIC FRAME DROP - FRAME NO. " << CurrentBlockID << endl;
-                    continue;
-                }
                 if (CurrentBlockID != PrevBlockID + 1 and PrevBlockID != 0) {
                     outfile << "JAI STREAM " << StreamIndex << " - FRAME DROP - FRAME No. " << PrevBlockID << endl;
                     cout << "JAI STREAM " << StreamIndex << " - FRAME DROP - FRAME No. " << PrevBlockID << endl;
-                    stream_fail_count -= CurrentBlockID - (PrevBlockID + 1);
                 }
                 PrevBlockID = CurrentBlockID;
                 height = lBuffer->GetImage()->GetHeight(), width = lBuffer->GetImage()->GetWidth();
@@ -547,20 +541,17 @@ void GrabThread(void *_StreamInfo) {
                 lStream->QueueBuffer(lBuffer);
                 EnumeratedFrame *curr_frame = new EnumeratedFrame;
                 curr_frame->frame = frame;
-//                curr_frame->BlockID = CurrentBlockID + stream_fail_count;
                 curr_frame->BlockID = CurrentBlockID;
                 pthread_mutex_lock(&mtx);
                 MyStreamInfo->Frames.push(curr_frame);
                 pthread_cond_signal(&MergeFramesEvent[StreamIndex]);
                 pthread_mutex_unlock(&mtx);
             } else {
-                stream_fail_count++;
                 lStream->QueueBuffer(lBuffer);
                 cout << StreamIndex << ": OPR - FAILURE AFTER FRAME NO. " << CurrentBlockID << endl;
             }
             // Re-queue the buffer in the stream object
         } else {
-            stream_fail_count++;
             cout << StreamIndex << ": BAD RESULT!" << endl;
             // Retrieve buffer failure
             cout << lResult.GetCodeString().GetAscii() << "\n";
