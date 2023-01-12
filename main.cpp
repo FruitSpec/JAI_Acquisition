@@ -254,9 +254,6 @@ int main() {
     PvStream *lStreams[3] = {NULL, NULL, NULL};
     BufferList lBufferLists[3];
     StreamInfo *MyStreamInfos[3];
-    ifstream config_file("/home/mic-730ai/fruitspec/JAI_Acquisition/config.json", std::ifstream::binary);
-
-    config = json::parse(config_file);
 
     pthread_cond_init(&GrabEvent, NULL)
 
@@ -628,7 +625,7 @@ void MergeThread(void *_Frames) {
         cudaFrames[2].download(res_800);
         cudaFrames[1].download(res_975);
 
-        cudaFrames[0] = cudaBGR[0];
+        cudaFrames[0] = cudaBGR[2];
 
         for (int i = 0; i < 3; i++) {
             cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
