@@ -685,8 +685,11 @@ void stop_acquisition(StreamingParameters st_params) {
 }
 
 int main(int argc, char* argv[]) {
-    cout << "START ACQUISITION" << endl;
+    cout << "TRYING TO START ACQUISITION" << endl;
     StreamingParameters st_params = start_acquisition();
+    cout << "ACQUISITION STARTED" << endl;
     cin.get();
+    cout << "TRYING TO STOP ACQUISITION" << endl;
     stop_acquisition(st_params);
+    cout << "ACQUISITION STOPPED" << endl;
 }
