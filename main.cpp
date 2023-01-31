@@ -87,7 +87,7 @@ ofstream outfile;
 json config;
 string output_dir;
 
-bool save_all_channels = false;
+bool save_all_channels = true;
 bool _abort = false, mp4_init = false;
 float avg_coloring = 0;
 int frame_count = 0;
