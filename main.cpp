@@ -686,4 +686,7 @@ void stop_acquisition(StreamingParameters st_params) {
 
 int main(int argc, char* argv[]) {
     cout << "START ACQUISITION" << endl;
+    StreamingParameters st_params = start_acquisition();
+    cin.get();
+    stop_acquisition(st_params);
 }
