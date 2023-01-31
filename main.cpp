@@ -55,6 +55,16 @@ typedef struct {
     string output_dir = string("/home/mic-730ai/Desktop/JAI_Results");
 } VideoConfig;
 
+typedef struct {
+    StreamInfo *MyStreamInfos[3];
+    PvDevice *lDevice;
+    BufferList *lBufferLists[3];
+    thread *jai_t0, *jai_t1, *jai_t2, *zed_t, *merge_t;
+    VideoConfig *video_conf;
+    pthread_cond_t *GrabEvent;
+    pthread_cond_t *MergeFramesEvent[3];
+} StreamingParameters;
+
 PV_INIT_SIGNAL_HANDLER();
 
 bool SelectDeviceLocally(PvString *aConnectionID);
@@ -86,11 +96,14 @@ void ZedThread(Camera zed);
 
 void MergeThread(void *_Frames);
 
-void sigterm_handler(int signum);
+StreamingParameters start_acquisition();
 
+void stop_acquisition(StreamingParameters st_params);
 ofstream outfile;
 
 bool _abort = false;
+
+/// Code starts here
 
 bool SelectDeviceLocally(PvString *aConnectionID)
 {
@@ -374,11 +387,6 @@ void setup_ZED(Camera *&zed, VideoConfig *&video_conf) {
     }
 }
 
-void sigterm_handler(int signum) {
-    _abort = true;
-    cout << "sigterm handled" << endl;
-}
-
 void ZedThread(Camera *&zed) {
     // Grab ZED data and write to SVO file
 
@@ -406,9 +414,9 @@ void GrabThread(void *_StreamInfo, pthread_cond_t *&GrabEvent, pthread_cond_t *M
     PvResult lResult, lOperationResult;
     uint64_t CurrentBlockID = 0;
 
-    pthread_mutex_lock(tmp_mtx);
-    pthread_cond_wait(&GrabEvent, tmp_mtx);
-    pthread_mutex_unlock(tmp_mtx);
+    pthread_mutex_lock(&tmp_mtx);
+    pthread_cond_wait(&GrabEvent, &tmp_mtx);
+    pthread_mutex_unlock(&tmp_mtx);
     cout << "JAI STREAM " << StreamIndex << " STARTED" << endl;
     while (!_abort) {
         *lBuffer = NULL;
@@ -471,14 +479,14 @@ void MergeThread(void *_Frames, pthread_mutex_t &mtx) {
     pthread_cond_broadcast(&GrabEvent);
     for (frame_no = 1; !_abort; frame_no++) {
         for (int i = 0; i < 3; i++) {
-            pthread_mutex_lock(mtx);
+            pthread_mutex_lock(&mtx);
             while ((*(FramesQueue[i])).empty() and !grabbed[i] and !_abort) {
                 clock_gettime(CLOCK_REALTIME, &max_wait);
                 max_wait.tv_sec += 1;
-                const int timed_wait_rv = pthread_cond_timedwait(&MergeFramesEvent[i], mtx, &max_wait);
+                const int timed_wait_rv = pthread_cond_timedwait(&MergeFramesEvent[i], &mtx, &max_wait);
             }
             if (_abort) {
-                pthread_mutex_unlock(mtx);
+                pthread_mutex_unlock(&mtx);
                 break;
             }
             if (!grabbed[i]) {
@@ -487,7 +495,7 @@ void MergeThread(void *_Frames, pthread_mutex_t &mtx) {
                 (*(FramesQueue[i])).pop();
             }
             grabbed[i] = false;
-            pthread_mutex_unlock(mtx);
+            pthread_mutex_unlock(&mtx);
         }
         if (_abort)
             break;
@@ -533,9 +541,7 @@ void MergeThread(void *_Frames, pthread_mutex_t &mtx) {
     }
 }
 
-void start_acquisition() {
-    cout << "starting acquisition" << endl;
-
+StreamingParameters start_acquisition() {
     PvDevice *lDevice = NULL;
     PvStream *lStreams[3] = {NULL, NULL, NULL};
     BufferList lBufferLists[3];
@@ -554,13 +560,26 @@ void start_acquisition() {
     int file_index;
     queue < EnumeratedFrame * > *Frames[3] = {&(MyStreamInfos[0]->Frames), &(MyStreamInfos[1]->Frames),
                                               &(MyStreamInfos[2]->Frames)};
+    StreamingParameters st_params = new StreamingParameters;
+
+    st_params.MyStreamInfos = MyStreamInfos;
+    st_params.lDevice = &lDevice;
+    st_params.lBufferLists = lBufferLists;
+    st_params.jai_t0 = &jai_t0;
+    st_params.jai_t1 = &jai_t1;
+    st_params.jai_t2 = &jai_t2;
+    st_params.zed_t = &zed_t;
+    st_params.merge_t = &merge_t;
+    st_params.video_conf = &video_conf;
+    st_params.GrabEvent = &GrabEvent;
+    st_params.MergeFramesEvent = MergeFramesEvent;
+
 
     // check if this command is necessary
     PV_SAMPLE_INIT();
 
     pthread_cond_init(&GrabEvent, NULL)
     video_conf = parse_args(argc, argv);
-    signal(SIGTERM, sigterm_handler);
 
     if (!setup_JAI(MyStreamInfos, lDevice, lBufferLists, video_conf))
         exit(-1);
@@ -584,18 +603,38 @@ void start_acquisition() {
     jai_t1 = thread(GrabThread, (void *) MyStreamInfos[1], &tmp_mtx);
     jai_t2 = thread(GrabThread, (void *) MyStreamInfos[2], &tmp_mtx);
     merge_t = thread(MergeThread, (void *) Frames, &mtx);
+
+    return st_params;
 }
 
-void stop_acquisition(StreamInfo *MyStreamInfos[3], PvDevice *&lDevice, BufferList lBufferLists[3],
-                      thread *&jai_t0, thread *&jai_t1, thread *&jai_t2, thread *&zed_t, thread *&merge_t,
-                      VideoConfig *&video_conf, pthread_cond_t *&GrabEvent, pthread_cond_t *MergeFramesEvent[3]) {
+void stop_acquisition(StreamingParameters st_params) {
     cout << "stopping acquisition" << endl;
 
     PvGenParameterArray *lDeviceParams;
     PvGenCommand *lStop;
 
+    StreamInfo *MyStreamInfos[3];
+    PvDevice *lDevice = NULL;
+    BufferList lBufferLists[3];
+    thread *zed_t, *jai_t0, *jai_t1, *jai_t2, *merge_t;
+    VideoConfig *video_conf;
+    pthread_cond_t *GrabEvent = PTHREAD_COND_INITIALIZER, MergeFramesEvent[3];
+
+    MyStreamInfos = st_params.MyStreamInfos;
+    lDevice = st_params.lDevice;
+    lBufferLists = st_params.lBufferLists;
+    jai_t0 = st_params.jai_t0;
+    jai_t1 = st_params.jai_t1;
+    jai_t2 = st_params.jai_t2;
+    zed_t = st_params.zed_t;
+    merge_t = st_params.merge_t;
+    video_conf = st_params.video_conf;
+    GrabEvent = st_params.GrabEvent;
+    st_params.MergeFramesEvent = MergeFramesEvent;
+
+
     // Get device parameters need to control streaming - set acquisition stop command
-    lDeviceParams = lDevice->GetParameters();
+    lDeviceParams = st_params.lDevice->GetParameters();
     lStop = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStop"));
 
     _abort = true;
@@ -640,7 +679,11 @@ void stop_acquisition(StreamInfo *MyStreamInfos[3], PvDevice *&lDevice, BufferLi
     lDevice->Disconnect();
 
     PvDevice::Free(lDevice);
-    pthread_cond_destroy(&GrabEvent);
+    pthread_cond_destroy(GrabEvent);
     for (int i = 0; i < 3; i++) pthread_cond_destroy(&MergeFramesEvent[i]);
     PV_SAMPLE_TERMINATE();
+}
+
+int main(int argc, char* argv[]) {
+    cout << "START ACQUISITION" << endl;
 }
