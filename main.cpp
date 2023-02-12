@@ -48,7 +48,7 @@ typedef struct {
 
 typedef struct {
     int FPS = 15, exposure_rgb = 500, exposure_800 = 1000, exposure_975 = 3000;
-    int width = 1536, height = 2048;
+    int64_t width = 1536, height = 2048;
     int file_index = -1;
     bool output_fsi = false, output_rgb = false, output_800 = false, output_975 = false, output_svo = false;
     bool view = false;
@@ -63,7 +63,7 @@ typedef struct {
     VideoConfig *video_conf;
     pthread_cond_t *GrabEvent;
     pthread_cond_t *MergeFramesEvent[3];
-} StreamingParameters;
+} AcquisitionParameters;
 
 PV_INIT_SIGNAL_HANDLER();
 
@@ -79,26 +79,28 @@ void CreateStreamBuffers(PvDevice *aDevice, PvStream *aStream, BufferList *aBuff
 
 void FreeStreamBuffers(BufferList *aBufferList);
 
-void parse_args(int argc, char* argv[]);
+VideoConfig * parse_args(int argc, char *argv[]);
 
-bool setup_JAI(StreamInfo *MyStreamInfos[3], PvDevice *&lDevice, BufferList lBufferLists[3], VideoConfig video_conf);
+bool setup_JAI(StreamInfo *MyStreamInfos[3], PvDevice *&lDevice, BufferList lBufferLists[3], VideoConfig *video_conf,
+               pthread_cond_t *MergeFramesEvent[3]);
 
-int MP4CreateFirstTime(VideoConfig *&video_conf, VideoWriter *&mp4_FSI, VideoWriter *&mp4_RGB, VideoWriter *&mp4_800,
+int MP4CreateFirstTime(VideoConfig *video_conf, VideoWriter *&mp4_FSI, VideoWriter *&mp4_RGB, VideoWriter *&mp4_800,
                        VideoWriter *&mp4_975);
 
 bool exists(char path[100]);
 
-void setup_ZED(Camera *&zed, VideoConfig video_conf);
+void setup_ZED(Camera *&zed, VideoConfig *video_conf);
 
-void GrabThread(void *StreamInfo);
+void GrabThread(void *_StreamInfo, pthread_cond_t *&GrabEvent, pthread_cond_t *MergeFramesEvent[3],
+                pthread_mutex_t &tmp_mtx);
 
-void ZedThread(Camera zed);
+void ZedThread(Camera *&zed);
 
-void MergeThread(void *_Frames);
+void MergeThread(void *_Frames, pthread_mutex_t &mtx);
 
-StreamingParameters start_acquisition();
+AcquisitionParameters start_acquisition();
 
-void stop_acquisition(StreamingParameters st_params);
+void stop_acquisition(AcquisitionParameters st_params);
 ofstream outfile;
 
 bool _abort = false;
@@ -223,40 +225,41 @@ void FreeStreamBuffers(BufferList *aBufferList) {
     aBufferList->clear();
 }
 
-VideoConfig parse_args(int argc, char *argv[]){
-    VideoConfig video_conf = new VideoConfig;
+VideoConfig * parse_args(int argc, char *argv[]){
+    VideoConfig *video_conf = new VideoConfig;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-        if (arg == "--fps" or arg == "--FPS") video_conf.FPS = std::stoi(argv[++i]);
-        if (arg == "--exposure-rgb") video_conf.exposure_rgb = std::stoi(argv[++i]);
-        if (arg == "--exposure-800") video_conf.exposure_800 = std::stoi(argv[++i]);
-        if (arg == "--exposure-975") video_conf.exposure_975 = std::stoi(argv[++i]);
-        if (arg == "--output_dir") video_conf.output_dir = string(argv[++i]);
-        else if (arg == "--output-fsi") video_conf.output_fsi = true;
-        else if (arg == "--output-rgb") video_conf.output_rgb = true;
-        else if (arg == "--output-800") video_conf.output_800 = true;
-        else if (arg == "--output-975") video_conf.output_975 = true;
-        else if (arg == "--output-svo") video_conf.output_svo = true;
-        else if (arg == "--view") video_conf.view = true;
+        if (arg == "--fps" or arg == "--FPS") video_conf->FPS = std::stoi(argv[++i]);
+        if (arg == "--exposure-rgb") video_conf->exposure_rgb = std::stoi(argv[++i]);
+        if (arg == "--exposure-800") video_conf->exposure_800 = std::stoi(argv[++i]);
+        if (arg == "--exposure-975") video_conf->exposure_975 = std::stoi(argv[++i]);
+        if (arg == "--output_dir") video_conf->output_dir = string(argv[++i]);
+        else if (arg == "--output-fsi") video_conf->output_fsi = true;
+        else if (arg == "--output-rgb") video_conf->output_rgb = true;
+        else if (arg == "--output-800") video_conf->output_800 = true;
+        else if (arg == "--output-975") video_conf->output_975 = true;
+        else if (arg == "--output-svo") video_conf->output_svo = true;
+        else if (arg == "--view") video_conf->view = true;
     }
 
-    std::cout << "FPS: " << FPS << std::endl;
-    if (view)
+    std::cout << "FPS: " << video_conf->FPS << std::endl;
+    if (video_conf->view)
         std::cout << "view mode: on" << std::endl;
     else {
         std::cout << "view mode: off" << std::endl;
-        std::cout << "output-fsi: " << std::boolalpha << output_fsi << std::endl;
-        std::cout << "output-rgb: " << std::boolalpha << output_rgb << std::endl;
-        std::cout << "output-800: " << std::boolalpha << output_800 << std::endl;
-        std::cout << "output-975: " << std::boolalpha << output_975 << std::endl;
-        std::cout << "output-svo: " << std::boolalpha << output_svo << std::endl;
+        std::cout << "output-fsi: " << std::boolalpha << video_conf->output_fsi << std::endl;
+        std::cout << "output-rgb: " << std::boolalpha << video_conf->output_rgb << std::endl;
+        std::cout << "output-800: " << std::boolalpha << video_conf->output_800 << std::endl;
+        std::cout << "output-975: " << std::boolalpha << video_conf->output_975 << std::endl;
+        std::cout << "output-svo: " << std::boolalpha << video_conf->output_svo << std::endl;
     }
 
     return video_conf;
 }
 
-bool setup_JAI(StreamInfo *MyStreamInfos[3], PvDevice *&lDevice, BufferList lBufferLists[3], VideoConfig video_conf) {
+bool setup_JAI(StreamInfo *MyStreamInfos[3], PvDevice *&lDevice, BufferList lBufferLists[3], VideoConfig *video_conf,
+               pthread_cond_t *MergeFramesEvent[3]) {
     PvString lConnectionID;
     bool test_streaming = true;
 
@@ -267,15 +270,15 @@ bool setup_JAI(StreamInfo *MyStreamInfos[3], PvDevice *&lDevice, BufferList lBuf
             PvStream *lStreams[3] = {NULL, NULL, NULL};
 
             lDevice->GetParameters()->SetEnumValue("SourceSelector", "Source0");
-            lDevice->GetParameters()->SetFloatValue("ExposureAutoControlMax", video_conf.exposure_rgb);
+            lDevice->GetParameters()->SetFloatValue("ExposureAutoControlMax", video_conf->exposure_rgb);
             lDevice->GetParameters()->SetEnumValue("SourceSelector", "Source1");
-            lDevice->GetParameters()->SetFloatValue("ExposureAutoControlMax", video_conf.exposure_800);
+            lDevice->GetParameters()->SetFloatValue("ExposureAutoControlMax", video_conf->exposure_800);
             lDevice->GetParameters()->SetEnumValue("SourceSelector", "Source2");
-            lDevice->GetParameters()->SetFloatValue("ExposureAutoControlMax", video_conf.exposure_975);
+            lDevice->GetParameters()->SetFloatValue("ExposureAutoControlMax", video_conf->exposure_975);
             lDevice->GetParameters()->SetEnumValue("SourceSelector", "Source0");
-            lDevice->GetParameters()->SetFloatValue("AcquisitionFrameRate", video_conf.FPS);
-            lDevice->GetParameters()->GetIntegerValue("Width", video_conf.width);
-            lDevice->GetParameters()->GetIntegerValue("Height", video_conf.height);
+            lDevice->GetParameters()->SetFloatValue("AcquisitionFrameRate", video_conf->FPS);
+            lDevice->GetParameters()->GetIntegerValue("Width", video_conf->width);
+            lDevice->GetParameters()->GetIntegerValue("Height", video_conf->height);
 
             for (int i = 0; i < 3; i++) {
                 MyStreamInfos[i] = new StreamInfo;
@@ -301,7 +304,7 @@ bool setup_JAI(StreamInfo *MyStreamInfos[3], PvDevice *&lDevice, BufferList lBuf
     return false;
 }
 
-int MP4CreateFirstTime(VideoConfig *&video_conf, VideoWriter *&mp4_FSI, VideoWriter *&mp4_RGB, VideoWriter *&mp4_800,
+int MP4CreateFirstTime(VideoConfig *video_conf, VideoWriter *&mp4_FSI, VideoWriter *&mp4_RGB, VideoWriter *&mp4_800,
                        VideoWriter *&mp4_975){
     bool is_exist = false;
     int i = 0;
@@ -541,7 +544,7 @@ void MergeThread(void *_Frames, pthread_mutex_t &mtx) {
     }
 }
 
-StreamingParameters start_acquisition() {
+AcquisitionParameters start_acquisition() {
     PvDevice *lDevice = NULL;
     PvStream *lStreams[3] = {NULL, NULL, NULL};
     BufferList lBufferLists[3];
@@ -550,7 +553,7 @@ StreamingParameters start_acquisition() {
     pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_t tmp_mtx = PTHREAD_MUTEX_INITIALIZER;
 
-    VideoConfig video_conf;
+    VideoConfig *video_conf;
     thread zed_t, jai_t0, jai_t1, jai_t2, merge_t;
     PvGenParameterArray *lDeviceParams;
     PvGenCommand *lStart;
@@ -560,7 +563,7 @@ StreamingParameters start_acquisition() {
     int file_index;
     queue < EnumeratedFrame * > *Frames[3] = {&(MyStreamInfos[0]->Frames), &(MyStreamInfos[1]->Frames),
                                               &(MyStreamInfos[2]->Frames)};
-    StreamingParameters st_params = new StreamingParameters;
+    AcquisitionParameters st_params = new AcquisitionParameters;
 
     st_params.MyStreamInfos = MyStreamInfos;
     st_params.lDevice = &lDevice;
@@ -581,13 +584,13 @@ StreamingParameters start_acquisition() {
     pthread_cond_init(&GrabEvent, NULL)
     video_conf = parse_args(argc, argv);
 
-    if (!setup_JAI(MyStreamInfos, lDevice, lBufferLists, video_conf))
+    if (!setup_JAI(MyStreamInfos, lDevice, lBufferLists, video_conf, MergeFramesEvent))
         exit(-1);
     _abort = false;
 
     MP4CreateFirstTime(video_conf);
 
-    sprintf(log_filename, (video_conf.output_dir + string("/frame_drop_%d.log")).c_str(), file_index);
+    sprintf(log_filename, (video_conf->output_dir + string("/frame_drop_%d.log")).c_str(), file_index);
     outfile.open(log_filename, std::ios_base::app); // append instead of overwrite
 
     // Enable streaming and send the AcquisitionStart command
@@ -607,7 +610,7 @@ StreamingParameters start_acquisition() {
     return st_params;
 }
 
-void stop_acquisition(StreamingParameters st_params) {
+void stop_acquisition(AcquisitionParameters st_params) {
     cout << "stopping acquisition" << endl;
 
     PvGenParameterArray *lDeviceParams;
@@ -686,7 +689,7 @@ void stop_acquisition(StreamingParameters st_params) {
 
 int main(int argc, char* argv[]) {
     cout << "TRYING TO START ACQUISITION" << endl;
-    StreamingParameters st_params = start_acquisition();
+    AcquisitionParameters st_params = start_acquisition();
     cout << "ACQUISITION STARTED" << endl;
     cin.get();
     cout << "TRYING TO STOP ACQUISITION" << endl;
