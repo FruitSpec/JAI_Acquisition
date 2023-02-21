@@ -59,7 +59,7 @@ typedef struct {
     StreamInfo *MyStreamInfos[3];
     PvDevice *lDevice = NULL;
     BufferList *lBufferLists[3];
-    thread *jai_t0, *jai_t1, *jai_t2, *zed_t, *merge_t;
+    thread jai_t0, jai_t1, jai_t2, zed_t, merge_t;
     Camera zed;
     VideoConfig *video_conf;
     pthread_cond_t *GrabEvent;
@@ -108,7 +108,7 @@ bool start_acquisition(AcquisitionParameters &acq);
 
 void stop_acquisition(AcquisitionParameters &acq);
 
-bool disconnect_cameras(AcquisitionParameters &acq);
+void disconnect_cameras(AcquisitionParameters &acq);
 
 ofstream frame_drop_log_file;
 
@@ -603,11 +603,11 @@ void stop_acquisition(AcquisitionParameters &acq) {
 
     acq.is_running = false;
 
-    acq.jai_t0->join();
-    acq.jai_t1->join();
-    acq.jai_t2->join();
-    acq.zed_t->join();
-    acq.merge_t->join();
+    acq.jai_t0.join();
+    acq.jai_t1.join();
+    acq.jai_t2.join();
+    acq.zed_t.join();
+    acq.merge_t.join();
 
     if (acq.video_conf->output_fsi)
         acq.mp4_FSI.release();
@@ -621,7 +621,7 @@ void stop_acquisition(AcquisitionParameters &acq) {
 
     // Tell the device to stop sending images + disable streaming
     lStop->Execute();
-    lDevice->StreamDisable();
+    acq.lDevice->StreamDisable();
 }
 
 void disconnect_cameras(AcquisitionParameters &acq){
@@ -636,9 +636,9 @@ void disconnect_cameras(AcquisitionParameters &acq){
             PvResult lOperationResult;
             acq.MyStreamInfos[i]->aStream->RetrieveBuffer(&lBuffer, &lOperationResult);
         }
-        FreeStreamBuffers(&lBufferLists[i]);
+        FreeStreamBuffers(acq.lBufferLists[i]);
         acq.MyStreamInfos[i]->aStream->Close();
-        PvStream::Free(MyStreamInfos[i]->aStream);
+        PvStream::Free(acq.MyStreamInfos[i]->aStream);
     }
 
     // Disconnect the device
@@ -646,7 +646,7 @@ void disconnect_cameras(AcquisitionParameters &acq){
 
     PvDevice::Free(acq.lDevice);
     pthread_cond_destroy(acq.GrabEvent);
-    for (int i = 0; i < 3; i++) pthread_cond_destroy(&(acq.MergeFramesEvent[i]));
+    for (int i = 0; i < 3; i++) pthread_cond_destroy(acq.MergeFramesEvent[i]);
 
     // check if necessary
     PV_SAMPLE_TERMINATE();
