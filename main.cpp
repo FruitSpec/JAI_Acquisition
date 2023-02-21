@@ -42,7 +42,7 @@ typedef struct {
 
 typedef struct {
     PvStream *aStream;
-    int StreamIndex;
+    int stream_index;
     queue<EnumeratedFrame *> Frames;
 } StreamInfo;
 
@@ -57,12 +57,17 @@ typedef struct {
 
 typedef struct {
     StreamInfo *MyStreamInfos[3];
-    PvDevice *lDevice;
+    PvDevice *lDevice = NULL;
     BufferList *lBufferLists[3];
     thread *jai_t0, *jai_t1, *jai_t2, *zed_t, *merge_t;
+    Camera zed;
     VideoConfig *video_conf;
     pthread_cond_t *GrabEvent;
     pthread_cond_t *MergeFramesEvent[3];
+    pthread_mutex_t grab_mtx = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_t acq_start_mtx = PTHREAD_MUTEX_INITIALIZER;
+    VideoWriter mp4_FSI, mp4_BGR, mp4_800, mp4_975;
+    bool is_connected, is_running;
 } AcquisitionParameters;
 
 PV_INIT_SIGNAL_HANDLER();
@@ -81,29 +86,31 @@ void FreeStreamBuffers(BufferList *aBufferList);
 
 VideoConfig * parse_args(int argc, char *argv[]);
 
-bool setup_JAI(StreamInfo *MyStreamInfos[3], PvDevice *&lDevice, BufferList lBufferLists[3], VideoConfig *video_conf,
-               pthread_cond_t *MergeFramesEvent[3]);
+bool setup_JAI(AcquisitionParameters &acq);
 
-int MP4CreateFirstTime(VideoConfig *video_conf, VideoWriter *&mp4_FSI, VideoWriter *&mp4_RGB, VideoWriter *&mp4_800,
-                       VideoWriter *&mp4_975);
+void MP4CreateFirstTime(AcquisitionParameters &acq);
+
+string gs_sink_builder(int file_index, string output_type_name, string output_dir);
 
 bool exists(char path[100]);
 
-void setup_ZED(Camera *&zed, VideoConfig *video_conf);
+bool connect_ZED(AcquisitionParameters &acq);
 
-void GrabThread(void *_StreamInfo, pthread_cond_t *&GrabEvent, pthread_cond_t *MergeFramesEvent[3],
-                pthread_mutex_t &tmp_mtx);
+void GrabThread(int stream_index, AcquisitionParameters &acq);
 
-void ZedThread(Camera *&zed);
+void ZedThread(AcquisitionParameters &acq);
 
-void MergeThread(void *_Frames, pthread_mutex_t &mtx);
+void MergeThread(AcquisitionParameters &acq);
 
-AcquisitionParameters start_acquisition();
+bool connect_cameras(AcquisitionParameters &acq, int argc, char* argv[]);
 
-void stop_acquisition(AcquisitionParameters st_params);
-ofstream outfile;
+bool start_acquisition(AcquisitionParameters &acq);
 
-bool _abort = false;
+void stop_acquisition(AcquisitionParameters &acq);
+
+bool disconnect_cameras(AcquisitionParameters &acq);
+
+ofstream frame_drop_log_file;
 
 /// Code starts here
 
@@ -258,78 +265,85 @@ VideoConfig * parse_args(int argc, char *argv[]){
     return video_conf;
 }
 
-bool setup_JAI(StreamInfo *MyStreamInfos[3], PvDevice *&lDevice, BufferList lBufferLists[3], VideoConfig *video_conf,
-               pthread_cond_t *MergeFramesEvent[3]) {
+bool setup_JAI(AcquisitionParameters &acq) {
     PvString lConnectionID;
     bool test_streaming = true;
 
-    if (SelectDeviceLocally(&lConnectionID)) {
-        lDevice = ConnectToDevice(lConnectionID);
-        if (lDevice != NULL) {
-            PvGenParameterArray *lDeviceParams = lDevice->GetParameters();
-            PvStream *lStreams[3] = {NULL, NULL, NULL};
+    if (acq.video_conf->output_fsi or acq.video_conf->output_rgb or acq.video_conf->output_800 or acq.video_conf->output_975) {
+        if (SelectDeviceLocally(&lConnectionID)) {
+            acq.lDevice = ConnectToDevice(lConnectionID);
+            if (acq.lDevice != NULL) {
+                PvGenParameterArray *lDeviceParams = acq.lDevice->GetParameters();
+                PvStream *lStreams[3] = {NULL, NULL, NULL};
 
-            lDevice->GetParameters()->SetEnumValue("SourceSelector", "Source0");
-            lDevice->GetParameters()->SetFloatValue("ExposureAutoControlMax", video_conf->exposure_rgb);
-            lDevice->GetParameters()->SetEnumValue("SourceSelector", "Source1");
-            lDevice->GetParameters()->SetFloatValue("ExposureAutoControlMax", video_conf->exposure_800);
-            lDevice->GetParameters()->SetEnumValue("SourceSelector", "Source2");
-            lDevice->GetParameters()->SetFloatValue("ExposureAutoControlMax", video_conf->exposure_975);
-            lDevice->GetParameters()->SetEnumValue("SourceSelector", "Source0");
-            lDevice->GetParameters()->SetFloatValue("AcquisitionFrameRate", video_conf->FPS);
-            lDevice->GetParameters()->GetIntegerValue("Width", video_conf->width);
-            lDevice->GetParameters()->GetIntegerValue("Height", video_conf->height);
+                lDeviceParams->SetEnumValue("SourceSelector", "Source0");
+                lDeviceParams->SetFloatValue("ExposureAutoControlMax", acq.video_conf->exposure_rgb);
+                lDeviceParams->SetEnumValue("SourceSelector", "Source1");
+                lDeviceParams->SetFloatValue("ExposureAutoControlMax", acq.video_conf->exposure_800);
+                lDeviceParams->SetEnumValue("SourceSelector", "Source2");
+                lDeviceParams->SetFloatValue("ExposureAutoControlMax", acq.video_conf->exposure_975);
+                lDeviceParams->SetEnumValue("SourceSelector", "Source0");
+                lDeviceParams->SetFloatValue("AcquisitionFrameRate", acq.video_conf->FPS);
+                lDeviceParams->GetIntegerValue("Width", acq.video_conf->width);
+                lDeviceParams->GetIntegerValue("Height", acq.video_conf->height);
 
-            for (int i = 0; i < 3; i++) {
-                MyStreamInfos[i] = new StreamInfo;
-                MergeFramesEvent[i] = PTHREAD_COND_INITIALIZER;
-                pthread_cond_init(&MergeFramesEvent[i], NULL);
+                for (int i = 0; i < 3; i++) {
+                    pthread_cond_t *temp = new pthread_cond_t;
+                    *temp = PTHREAD_COND_INITIALIZER;
+                    acq.MergeFramesEvent[i] = temp;
+                    pthread_cond_init(acq.MergeFramesEvent[i], NULL);
 
-                lStreams[i] = OpenStream(lConnectionID);
-                if (lStreams[i] != NULL) {
-                    ConfigureStream(lDevice, lStreams[i], i);
-                    CreateStreamBuffers(lDevice, lStreams[i], &lBufferLists[i]);
-                    MyStreamInfos[i]->aStream = lStreams[i];
-                    MyStreamInfos[i]->StreamIndex = i;
-                } else
-                    test_streaming = false;
+                    lStreams[i] = OpenStream(lConnectionID);
+                    if (lStreams[i] != NULL) {
+                        ConfigureStream(acq.lDevice, lStreams[i], i);
+                        CreateStreamBuffers(acq.lDevice, lStreams[i], acq.lBufferLists[i]);
+                        acq.MyStreamInfos[i]->aStream = lStreams[i];
+                        acq.MyStreamInfos[i]->stream_index = i;
+                    } else
+                        test_streaming = false;
+                }
+
+                acq.lDevice->StreamEnable();
+                return test_streaming;
             }
-
-            lDevice->StreamEnable();
-            return test_streaming;
+            else
+                return false;
         }
+        else
+            return false;
     }
-
-    lDevice->StreamEnable();
-    return false;
+    else
+        return true;
 }
 
-int MP4CreateFirstTime(VideoConfig *video_conf, VideoWriter *&mp4_FSI, VideoWriter *&mp4_RGB, VideoWriter *&mp4_800,
-                       VideoWriter *&mp4_975){
+void MP4CreateFirstTime(AcquisitionParameters &acq){
     bool is_exist = false;
     int i = 0;
     char stat_FSI[100], stat_RGB[100], stat_800[100], stat_975[100], stat_SVO[100];
-    char f_fsi[100], f_rgb[100], f_800[100], f_975[100];
+    string f_fsi, f_rgb, f_800, f_975;
+    char zed_filename[100];
     string width_s, height_s, FPS_s;
 
-    if (not(video_conf->output_fsi or video_conf->output_rgb or video_conf->output_800 or video_conf->output_975)) {
-        video_conf - 1;
+    if (not(acq.video_conf->output_fsi or acq.video_conf->output_rgb or acq.video_conf->output_800 or acq.video_conf->output_975)) {
+        acq.video_conf->file_index = - 1;
         return;
     }
 
-    width_s = to_string(video_conf->width);
-    height_s = to_string(video_conf->height);
-    FPS_s = to_string(video_conf->FPS);
+    width_s = to_string(acq.video_conf->width);
+    height_s = to_string(acq.video_conf->height);
+    FPS_s = to_string(acq.video_conf->FPS);
 
     do {
-        sprintf(stat_FSI, (video_conf->output_dir + string("/Result_FSI_%d.mkv")).c_str(), ++i);
-        sprintf(stat_RGB, (video_conf->output_dir + string("/Result_RGB_%d.mkv")).c_str(), i);
-        sprintf(stat_800, (video_conf->output_dir + string("/Result_800_%d.mkv")).c_str(), i);
-        sprintf(stat_975, (video_conf->output_dir + string("/Result_975_%d.mkv")).c_str(), i);
-        sprintf(stat_SVO, (video_conf->output_dir + string("/ZED_%d.mkv")).c_str(), ++i);
+        sprintf(stat_FSI, (acq.video_conf->output_dir + string("/Result_FSI_%d.mkv")).c_str(), ++i);
+        sprintf(stat_RGB, (acq.video_conf->output_dir + string("/Result_RGB_%d.mkv")).c_str(), i);
+        sprintf(stat_800, (acq.video_conf->output_dir + string("/Result_800_%d.mkv")).c_str(), i);
+        sprintf(stat_975, (acq.video_conf->output_dir + string("/Result_975_%d.mkv")).c_str(), i);
+        sprintf(stat_SVO, (acq.video_conf->output_dir + string("/ZED_%d.mkv")).c_str(), ++i);
         is_exist = exists(stat_FSI) || exists(stat_RGB) ||
                 exists(stat_800) || exists(stat_975) || exists(stat_SVO);
     } while (is_exist);
+
+    acq.video_conf->file_index = i;
 
     string gst_3c = string("appsrc ! video/x-raw, format=BGR, width=(int)") + width_s +
             string(", height=(int)") + height_s + string(", framerate=(fraction)") + FPS_s +
@@ -337,94 +351,90 @@ int MP4CreateFirstTime(VideoConfig *video_conf, VideoWriter *&mp4_FSI, VideoWrit
             string("nvv4l2h265enc bitrate=15000000 ! h265parse ! matroskamux ! filesink location=");
 
     string gst_1c = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=");
-    string gs_fsi = gst_3c + f_fsi, gs_rgb = gst_3c + f_rgb;
-    string gs_800 = gst_1c + f_800, gs_975 = gst_1c + f_975;
 
-    if (output_fsi) {
-        sprintf(f_fsi, (string("\"") + video_conf->output_dir + string("/Result_FSI_%d.mkv\"")).c_str(), i);
-        mp4_FSI->open(gs_fsi, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
+    cv::Size frame_size(acq.video_conf->width, acq.video_conf->height);
+    int four_c = VideoWriter::fourcc('H', '2', '6', '5');
+    if (acq.video_conf->output_fsi) {
+        f_fsi = gs_sink_builder(acq.video_conf->file_index, "FSI", acq.video_conf->output_dir);
+        string gs_fsi = gst_3c + f_fsi;
+        acq.mp4_FSI.open(gs_fsi, four_c, acq.video_conf->FPS, frame_size);
     }
-    if (output_rgb) {
-        sprintf(f_rgb, (string("\"") + video_conf->output_dir + string("/Result_RGB_%d.mkv\"")).c_str(), i);
-        mp4_BGR->open(gs_rgb, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height));
+    if (acq.video_conf->output_rgb) {
+        f_rgb = gs_sink_builder(acq.video_conf->file_index, "RGB", acq.video_conf->output_dir);
+        string gs_rgb = gst_3c + f_rgb;
+        acq.mp4_BGR.open(gs_rgb, four_c, acq.video_conf->FPS, frame_size);
     }
-    if (output_800) {
-        sprintf(f_800, (string("\"") + video_conf->output_dir + string("/Result_800_%d.mkv\"")).c_str(), i);
-        mp4_800->open(gs_800, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
+    if (acq.video_conf->output_800) {;
+        f_800 = gs_sink_builder(acq.video_conf->file_index, "800", acq.video_conf->output_dir);
+        string gs_800 = gst_1c + f_800;
+        acq.mp4_800.open(gs_800, four_c, acq.video_conf->FPS, frame_size, false);
     }
-    if (output_975) {
-        sprintf(f_975, (string("\"") + video_conf->output_dir + string("/Result_975_%d.mkv\"")).c_str(), i);
-        mp4_975->open(gs_975, VideoWriter::fourcc('H', '2', '6', '5'), FPS, cv::Size(width, height), false);
+    if (acq.video_conf->output_975) {
+        f_975 = gs_sink_builder(acq.video_conf->file_index, "975", acq.video_conf->output_dir);
+        string gs_975 = gst_1c + f_975;
+        acq.mp4_975.open(gs_975, four_c, acq.video_conf->FPS, frame_size, false);
     }
+    if (acq.video_conf->output_svo) {
+        sprintf(zed_filename, (acq.video_conf->output_dir + string("/ZED_%d.svo")).c_str(), acq.video_conf->file_index);
 
-    video_conf->file_index = -1;
+        RecordingParameters params(zed_filename, SVO_COMPRESSION_MODE::H265);
+        acq.zed.enableRecording(params);
+    }
 }
+
+string gs_sink_builder(int file_index, string output_type_name, string output_dir){
+    string gs_loc = string("\"") + output_dir;
+    gs_loc += string("/Result_") + output_type_name + "_" + to_string(file_index) + string(".mkv\"");
+    return gs_loc;
+}
+
 
 bool exists(char path[100]){
     struct stat buffer;
     return stat(path, &buffer) == 0;
 }
 
-void setup_ZED(Camera *&zed, VideoConfig *&video_conf) {
-    char zed_filename[100];
+bool connect_ZED(AcquisitionParameters &acq){
     InitParameters init_params;
     init_params.camera_resolution = RESOLUTION::HD1080; // Use HD1080 video mode
-    init_params.camera_fps = video_conf->FPS; // Set fps
+    init_params.camera_fps = acq.video_conf->FPS; // Set fps
 
-    ERROR_CODE err = zed->open(init_params);
-    if (err != ERROR_CODE::SUCCESS) {
-        std::cout << toString(err) << std::endl;
-        exit(-1);
+    if (acq.video_conf->output_svo) {
+        ERROR_CODE err = acq.zed.open(init_params);
+        return err == ERROR_CODE::SUCCESS;
     }
-
-    // Enable video recording
-    sprintf(zed_filename, (video_conf->output_dir + string("/ZED_%d.svo")).c_str(), video_conf->file_index);
-
-    RecordingParameters params(zed_filename, SVO_COMPRESSION_MODE::H265);
-    if (output_svo) {
-        err = zed->enableRecording(params);
-        if (err != ERROR_CODE::SUCCESS) {
-            std::cout << toString(err) << std::endl;
-            exit(-1);
-        }
-    }
+    else
+        return true;
 }
 
-void ZedThread(Camera *&zed) {
+
+void ZedThread(AcquisitionParameters &acq) {
     // Grab ZED data and write to SVO file
 
-    for (int i = 1; !_abort; i++) {
-        ERROR_CODE err = zed->grab();
-//        if (err != ERROR_CODE::SUCCESS)
-//            outfile << "ZED FRAME DROP - FRAME NO. " << i << endl;
+    for (int i = 1; acq.is_running; i++) {
+        ERROR_CODE err = acq.zed.grab();
+        if (err != ERROR_CODE::SUCCESS)
+            frame_drop_log_file << "ZED FRAME DROP - FRAME NO. " << i << endl;
     }
 
-    if (output_svo)
-        zed->disableRecording();
-    zed->close();
+    if (acq.video_conf->output_svo)
+        acq.zed.disableRecording();
+    acq.zed.close();
 }
 
-void GrabThread(void *_StreamInfo, pthread_cond_t *&GrabEvent, pthread_cond_t *MergeFramesEvent[3],
-                pthread_mutex_t &tmp_mtx) {
-    uint64_t PrevBlockID = 0;
-    StreamInfo *MyStreamInfo = (StreamInfo *) _StreamInfo;
+void GrabThread(int stream_index, AcquisitionParameters &acq) {
+    StreamInfo *MyStreamInfo = acq.MyStreamInfos[stream_index];
     PvStream *lStream = (PvStream *) (MyStreamInfo->aStream);
-    int StreamIndex = (MyStreamInfo->StreamIndex), height, width;
-    int stream_fail_count = 0;
-    PvBuffer *lBuffer = NULL;
-
-
     PvResult lResult, lOperationResult;
-    uint64_t CurrentBlockID = 0;
+    uint64_t CurrentBlockID = 0, PrevBlockID = 0;
+    int height, width;
 
-    pthread_mutex_lock(&tmp_mtx);
-    pthread_cond_wait(&GrabEvent, &tmp_mtx);
-    pthread_mutex_unlock(&tmp_mtx);
-    cout << "JAI STREAM " << StreamIndex << " STARTED" << endl;
-    while (!_abort) {
-        *lBuffer = NULL;
-        PvResult lOperationResult;
-
+    pthread_mutex_lock(&(acq.acq_start_mtx));
+    pthread_cond_wait(acq.GrabEvent, &(acq.acq_start_mtx));
+    pthread_mutex_unlock(&(acq.acq_start_mtx));
+    cout << "JAI STREAM " << stream_index << " STARTED" << endl;
+    while (acq.is_running) {
+        PvBuffer *lBuffer = NULL;
         lResult = lStream->RetrieveBuffer(&lBuffer, &lOperationResult, 1000);
 
         if (lResult.IsOK()) {
@@ -433,7 +443,7 @@ void GrabThread(void *_StreamInfo, pthread_cond_t *&GrabEvent, pthread_cond_t *M
 
                 CurrentBlockID = lBuffer->GetBlockID();
                 if (CurrentBlockID != PrevBlockID + 1 and PrevBlockID != 0) {
-                    outfile << "JAI STREAM " << StreamIndex << " - FRAME DROP - FRAME No. " << PrevBlockID << endl;
+                    frame_drop_log_file << "JAI STREAM " << stream_index << " - FRAME DROP - FRAME No. " << PrevBlockID << endl;
                 }
                 PrevBlockID = CurrentBlockID;
                 height = lBuffer->GetImage()->GetHeight(), width = lBuffer->GetImage()->GetWidth();
@@ -441,31 +451,27 @@ void GrabThread(void *_StreamInfo, pthread_cond_t *&GrabEvent, pthread_cond_t *M
                 lStream->QueueBuffer(lBuffer);
                 EnumeratedFrame *curr_frame = new EnumeratedFrame;
                 curr_frame->frame = frame;
-                curr_frame->BlockID = CurrentBlockID + stream_fail_count;
-                pthread_mutex_lock(&mtx);
+                curr_frame->BlockID = CurrentBlockID;
+                pthread_mutex_lock(&(acq.grab_mtx));
                 MyStreamInfo->Frames.push(curr_frame);
-                pthread_cond_signal(&MergeFramesEvent[StreamIndex]);
-                pthread_mutex_unlock(&mtx);
+                pthread_cond_signal(acq.MergeFramesEvent[stream_index]);
+                pthread_mutex_unlock(&(acq.grab_mtx));
             } else {
-                stream_fail_count++;
                 lStream->QueueBuffer(lBuffer);
-                cout << StreamIndex << ": OPR - FAILURE" << endl;
+                cout << stream_index << ": OPR - FAILURE" << endl;
             }
             // Re-queue the buffer in the stream object
         } else {
-            stream_fail_count++;
-            cout << StreamIndex << ": BAD RESULT!" << endl;
+            cout << stream_index << ": BAD RESULT!" << endl;
             // Retrieve buffer failure
             cout << lResult.GetCodeString().GetAscii() << "\n";
         }
-//        pthread_cond_signal(&MergeFramesEvent[StreamIndex]);
-        // SetEvent(MergeFramesEvent[StreamIndex]); // signals the MergeThread that the output from current stream is ready
     }
-    cout << StreamIndex << ": Acquisition end with " << CurrentBlockID << endl;
+    cout << stream_index << ": Acquisition end with " << CurrentBlockID << endl;
 }
 
-void MergeThread(void *_Frames, pthread_mutex_t &mtx) {
-    queue<EnumeratedFrame *> **FramesQueue = (queue<EnumeratedFrame *> **) _Frames;
+void MergeThread(AcquisitionParameters &acq) {
+
     cv::Mat Frames[3], res;
     cuda::GpuMat cudaFSI;
     std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3), cudaFrames_equalized(3), cudaFrames_normalized(3);
@@ -479,39 +485,42 @@ void MergeThread(void *_Frames, pthread_mutex_t &mtx) {
 
     cout << "MERGE THREAD START" << endl;
     sleep(1);
-    pthread_cond_broadcast(&GrabEvent);
-    for (frame_no = 1; !_abort; frame_no++) {
+    pthread_cond_broadcast(acq.GrabEvent);
+    for (frame_no = 1; acq.is_running; frame_no++) {
         for (int i = 0; i < 3; i++) {
-            pthread_mutex_lock(&mtx);
-            while ((*(FramesQueue[i])).empty() and !grabbed[i] and !_abort) {
+
+            pthread_mutex_lock(&(acq.grab_mtx));
+            queue<EnumeratedFrame *> channel_frames = acq.MyStreamInfos[0]->Frames;
+
+            while (channel_frames.empty() and !grabbed[i] and acq.is_running) {
                 clock_gettime(CLOCK_REALTIME, &max_wait);
                 max_wait.tv_sec += 1;
-                const int timed_wait_rv = pthread_cond_timedwait(&MergeFramesEvent[i], &mtx, &max_wait);
+                const int timed_wait_rv = pthread_cond_timedwait(acq.MergeFramesEvent[i], &(acq.grab_mtx), &max_wait);
             }
-            if (_abort) {
-                pthread_mutex_unlock(&mtx);
+            if (!acq.is_running) {
+                pthread_mutex_unlock(&(acq.grab_mtx));
                 break;
             }
             if (!grabbed[i]) {
-                e_frames[i] = (*(FramesQueue[i])).front();
+                e_frames[i] = channel_frames.front();
                 Frames[i] = e_frames[i]->frame;
-                (*(FramesQueue[i])).pop();
+                channel_frames.pop();
             }
             grabbed[i] = false;
-            pthread_mutex_unlock(&mtx);
+            pthread_mutex_unlock(&(acq.grab_mtx));
         }
-        if (_abort)
+        if (!acq.is_running)
             break;
         if (e_frames[0]->BlockID != e_frames[1]->BlockID or e_frames[0]->BlockID != e_frames[2]->BlockID) {
             int max_id = std::max({e_frames[0]->BlockID, e_frames[1]->BlockID, e_frames[2]->BlockID});
-            // outfile << "MERGE DROP - AFTER FRAME NO. " << --frame_no << endl;
+            frame_drop_log_file << "MERGE DROP - AFTER FRAME NO. " << --frame_no << endl;
             for (int i = 0; i < 3; i++) {
                 if (e_frames[i]->BlockID == max_id)
                     grabbed[i] = true;
             }
             continue;
         }
-        cv::Mat res_fsi, res_bgr, res_800, res_975;
+        cv::Mat res_fsi;
         // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV reffers to it as BayerBG - https://github.com/opencv/opencv/issues/19629
 
         cudaFrames[0].upload(Frames[0]); // channel 0 = BayerBG8
@@ -520,11 +529,8 @@ void MergeThread(void *_Frames, pthread_mutex_t &mtx) {
 
         cv::cuda::demosaicing(cudaFrames[0], cudaFrames[0], cv::COLOR_BayerBG2BGR);
         cv::cuda::split(cudaFrames[0], cudaBGR);
-        cudaFrames[0].download(res_bgr);
-        cudaFrames[2].download(res_800);
-        cudaFrames[1].download(res_975);
 
-        cudaFrames[0] = cudaBGR[0];
+        cudaFrames[0] = cudaBGR[0]; // just pick the blue from the bayer
 
         for (int i = 0; i < 3; i++) {
             cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
@@ -533,166 +539,131 @@ void MergeThread(void *_Frames, pthread_mutex_t &mtx) {
         cv::cuda::merge(cudaFrames_normalized, cudaFSI);
         cudaFSI.download(res_fsi);
 
-        if (output_fsi)
-            mp4_FSI.write(res_fsi);
-        if (output_rgb)
-            mp4_BGR.write(res_bgr);
-        if (output_800)
-            mp4_800.write(res_800);
-        if (output_975)
-            mp4_975.write(res_975);
+        if (acq.video_conf->output_fsi)
+            acq.mp4_FSI.write(res_fsi);
+        if (acq.video_conf->output_rgb)
+            acq.mp4_BGR.write(Frames[0]);
+        if (acq.video_conf->output_800)
+            acq.mp4_800.write(Frames[1]);
+        if (acq.video_conf->output_975)
+            acq.mp4_975.write(Frames[2]);
     }
 }
 
-AcquisitionParameters start_acquisition() {
-    PvDevice *lDevice = NULL;
+bool connect_cameras(AcquisitionParameters &acq, int argc, char* argv[]){
     PvStream *lStreams[3] = {NULL, NULL, NULL};
-    BufferList lBufferLists[3];
-    StreamInfo *MyStreamInfos[3];
-    pthread_cond_t GrabEvent = PTHREAD_COND_INITIALIZER, MergeFramesEvent[3];
-    pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
-    pthread_mutex_t tmp_mtx = PTHREAD_MUTEX_INITIALIZER;
-
-    VideoConfig *video_conf;
-    thread zed_t, jai_t0, jai_t1, jai_t2, merge_t;
-    PvGenParameterArray *lDeviceParams;
-    PvGenCommand *lStart;
-    Camera zed;
-    VideoWriter mp4_FSI, mp4_BGR, mp4_800, mp4_975;
-    char log_filename[100];
     int file_index;
-    queue < EnumeratedFrame * > *Frames[3] = {&(MyStreamInfos[0]->Frames), &(MyStreamInfos[1]->Frames),
-                                              &(MyStreamInfos[2]->Frames)};
-    AcquisitionParameters st_params = new AcquisitionParameters;
-
-    st_params.MyStreamInfos = MyStreamInfos;
-    st_params.lDevice = &lDevice;
-    st_params.lBufferLists = lBufferLists;
-    st_params.jai_t0 = &jai_t0;
-    st_params.jai_t1 = &jai_t1;
-    st_params.jai_t2 = &jai_t2;
-    st_params.zed_t = &zed_t;
-    st_params.merge_t = &merge_t;
-    st_params.video_conf = &video_conf;
-    st_params.GrabEvent = &GrabEvent;
-    st_params.MergeFramesEvent = MergeFramesEvent;
-
 
     // check if this command is necessary
     PV_SAMPLE_INIT();
 
-    pthread_cond_init(&GrabEvent, NULL)
-    video_conf = parse_args(argc, argv);
+    pthread_cond_init(acq.GrabEvent, NULL);
+    acq.video_conf = parse_args(argc, argv);
 
-    if (!setup_JAI(MyStreamInfos, lDevice, lBufferLists, video_conf, MergeFramesEvent))
-        exit(-1);
-    _abort = false;
+    bool jai_success, zed_success;
+    jai_success = setup_JAI(acq);
+    zed_success = connect_ZED(acq);
 
-    MP4CreateFirstTime(video_conf);
-
-    sprintf(log_filename, (video_conf->output_dir + string("/frame_drop_%d.log")).c_str(), file_index);
-    outfile.open(log_filename, std::ios_base::app); // append instead of overwrite
-
-    // Enable streaming and send the AcquisitionStart command
-    setup_ZED(zed, file_index);
-
-    // Get device parameters need to control streaming - set acquisition start command
-    lDeviceParams = lDevice->GetParameters();
-    lStart = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStart"));
-
-    zed_t = thread(ZedThread, zed);
-    lStart->Execute();
-    jai_t0 = thread(GrabThread, (void *) MyStreamInfos[0], &tmp_mtx);
-    jai_t1 = thread(GrabThread, (void *) MyStreamInfos[1], &tmp_mtx);
-    jai_t2 = thread(GrabThread, (void *) MyStreamInfos[2], &tmp_mtx);
-    merge_t = thread(MergeThread, (void *) Frames, &mtx);
-
-    return st_params;
+    acq.is_connected = jai_success and zed_success;
+    return acq.is_connected;
 }
 
-void stop_acquisition(AcquisitionParameters st_params) {
-    cout << "stopping acquisition" << endl;
 
+bool start_acquisition(AcquisitionParameters &acq) {
+    PvGenParameterArray *lDeviceParams;
+    PvGenCommand *lStart;
+
+    if (not acq.is_connected)
+        return false;
+
+    acq.is_running = true;
+    MP4CreateFirstTime(acq);
+
+    // Get device parameters need to control streaming - set acquisition start command
+    lDeviceParams = acq.lDevice->GetParameters();
+    lStart = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStart"));
+
+    acq.zed_t = thread(ZedThread, acq);
+    lStart->Execute();
+    acq.jai_t0 = thread(GrabThread, 0, acq);
+    acq.jai_t1 = thread(GrabThread, 1, acq);
+    acq.jai_t2 = thread(GrabThread, 2, acq);
+    acq.merge_t = thread(MergeThread, acq);
+    return true;
+}
+
+void stop_acquisition(AcquisitionParameters &acq) {
     PvGenParameterArray *lDeviceParams;
     PvGenCommand *lStop;
 
-    StreamInfo *MyStreamInfos[3];
-    PvDevice *lDevice = NULL;
-    BufferList lBufferLists[3];
-    thread *zed_t, *jai_t0, *jai_t1, *jai_t2, *merge_t;
-    VideoConfig *video_conf;
-    pthread_cond_t *GrabEvent = PTHREAD_COND_INITIALIZER, MergeFramesEvent[3];
-
-    MyStreamInfos = st_params.MyStreamInfos;
-    lDevice = st_params.lDevice;
-    lBufferLists = st_params.lBufferLists;
-    jai_t0 = st_params.jai_t0;
-    jai_t1 = st_params.jai_t1;
-    jai_t2 = st_params.jai_t2;
-    zed_t = st_params.zed_t;
-    merge_t = st_params.merge_t;
-    video_conf = st_params.video_conf;
-    GrabEvent = st_params.GrabEvent;
-    st_params.MergeFramesEvent = MergeFramesEvent;
-
 
     // Get device parameters need to control streaming - set acquisition stop command
-    lDeviceParams = st_params.lDevice->GetParameters();
+    lDeviceParams = acq.lDevice->GetParameters();
     lStop = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStop"));
 
-    _abort = true;
+    acq.is_running = false;
 
-    jai_t0->join();
-    jai_t1->join();
-    jai_t2->join();
-    zed_t->join();
-    merge_t->join();
+    acq.jai_t0->join();
+    acq.jai_t1->join();
+    acq.jai_t2->join();
+    acq.zed_t->join();
+    acq.merge_t->join();
 
-    if (video_conf->output_fsi)
-        mp4_FSI.release();
-    if (video_conf->output_rgb)
-        mp4_BGR.release();
-    if (video_conf->output_800)
-        mp4_800.release();
-    if (video_conf->output_975)
-        mp4_975.release();
+    if (acq.video_conf->output_fsi)
+        acq.mp4_FSI.release();
+    if (acq.video_conf->output_rgb)
+        acq.mp4_BGR.release();
+    if (acq.video_conf->output_800)
+        acq.mp4_800.release();
+    if (acq.video_conf->output_975)
+        acq.mp4_975.release();
 
 
     // Tell the device to stop sending images + disable streaming
     lStop->Execute();
     lDevice->StreamDisable();
+}
 
+void disconnect_cameras(AcquisitionParameters &acq){
     // Abort all buffers from the streams and dequeue
     cout << "Aborting buffers still in streams" << endl << "closing streams" << endl;
     for (int i = 0; i < 3; i++) {
-        MyStreamInfos[i]->aStream->AbortQueuedBuffers();
+        acq.MyStreamInfos[i]->aStream->AbortQueuedBuffers();
 
         // Empty the remaining frames that from the buffers
-        while (MyStreamInfos[i]->aStream->GetQueuedBufferCount() > 0) {
+        while (acq.MyStreamInfos[i]->aStream->GetQueuedBufferCount() > 0) {
             PvBuffer *lBuffer = NULL;
             PvResult lOperationResult;
-            MyStreamInfos[i]->aStream->RetrieveBuffer(&lBuffer, &lOperationResult);
+            acq.MyStreamInfos[i]->aStream->RetrieveBuffer(&lBuffer, &lOperationResult);
         }
         FreeStreamBuffers(&lBufferLists[i]);
-        MyStreamInfos[i]->aStream->Close();
+        acq.MyStreamInfos[i]->aStream->Close();
         PvStream::Free(MyStreamInfos[i]->aStream);
     }
 
     // Disconnect the device
-    lDevice->Disconnect();
+    acq.lDevice->Disconnect();
 
-    PvDevice::Free(lDevice);
-    pthread_cond_destroy(GrabEvent);
-    for (int i = 0; i < 3; i++) pthread_cond_destroy(&MergeFramesEvent[i]);
+    PvDevice::Free(acq.lDevice);
+    pthread_cond_destroy(acq.GrabEvent);
+    for (int i = 0; i < 3; i++) pthread_cond_destroy(&(acq.MergeFramesEvent[i]));
+
+    // check if necessary
     PV_SAMPLE_TERMINATE();
 }
 
 int main(int argc, char* argv[]) {
+    AcquisitionParameters acq;
+    cout << "TRYING TO CONNECT CAMERAS ACQUISITION" << endl;
+    connect_cameras(acq, argc, argv);
     cout << "TRYING TO START ACQUISITION" << endl;
-    AcquisitionParameters st_params = start_acquisition();
+    start_acquisition(acq);
     cout << "ACQUISITION STARTED" << endl;
     cin.get();
     cout << "TRYING TO STOP ACQUISITION" << endl;
-    stop_acquisition(st_params);
+    stop_acquisition(acq);
     cout << "ACQUISITION STOPPED" << endl;
+    cout << "TRYING TO DISCONNECT CAMERAS" << endl;
+    disconnect_cameras(acq);
+    cout << "CAMERAS DISCONNECTED" << endl;
 }
