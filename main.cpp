@@ -535,8 +535,7 @@ void MergeThread(AcquisitionParameters &acq) {
         if (acq.video_conf->output_rgb)
             cudaFrames[0].download(res_bgr);
 
-
-        cudaFrames[0] = cudaBGR[0]; // just pick the blue from the bayer
+        cudaFrames[0] = cudaBGR[2]; // just pick the blue from the bayer
 
         for (int i = 0; i < 3; i++) {
             cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
