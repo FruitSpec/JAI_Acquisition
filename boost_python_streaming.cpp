@@ -29,44 +29,6 @@
 #include <dirent.h>
 #include <boost/python.hpp>
 
-using namespace cv;
-using namespace cuda;
-using namespace sl;
-using namespace std;
-using namespace boost::python;
-
-// Start the acquisition process
-void startAcquisition() {
-    // Your code to start the acquisition process goes here
-}
-
-// Stop the acquisition process
-void stopAcquisition() {
-    // Your code to stop the acquisition process goes here
-}
-
-// Retrieve a stream of merged frames
-object getMergedFrames() {
-    // Your code to retrieve the merged frames goes here
-    // Pack the frames into a Python list and return it
-    list frames;
-    return frames;
-}
-
-// Define the Python module and functions
-BOOST_PYTHON_MODULE(my_module) {
-    def("start_acquisition", startAcquisition);
-    def("stop_acquisition", stopAcquisition);
-    def("get_merged_frames", getMergedFrames);
-}
-
-
-#include <boost/python.hpp>
-#include <thread>
-#include <opencv2/opencv.hpp>
-
-using namespace boost::python;
-using namespace cv;
 
 struct AcquisitionParameters {
     StreamInfo *MyStreamInfos[3];
