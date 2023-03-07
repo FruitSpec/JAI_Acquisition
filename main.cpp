@@ -87,6 +87,7 @@ ofstream outfile;
 json config;
 string output_dir;
 
+bool use_clahe_stretch = true;
 bool save_all_channels = true;
 bool _abort = false, mp4_init = false;
 float avg_coloring = 0;
@@ -560,6 +561,88 @@ void GrabThread(void *_StreamInfo) {
     cout << StreamIndex << ": Acquisition end with " << CurrentBlockID << endl;
 }
 
+void stretch(cuda::GpuMat& channel, double lower, double upper, double min_int, double max_int) {
+    cuda::normalize(channel, channel, 0, 1, NORM_MINMAX, CV_32F);
+    cuda::GpuMat hist;
+    cuda::GpuMat b(1, 256, CV_32F);
+
+    cuda::calcHist(channel, hist, b);
+
+    double lower_threshold, upper_threshold;
+
+    // Calculate lower and upper threshold indices
+    auto hist_ptr = hist.ptr<float>();
+    int hist_size = hist.rows * hist.cols;
+    double total = 0.0;
+    for (int i = 0; i < hist_size; i++) {
+        total += hist_ptr[i];
+    }
+    double sum = 0.0;
+    for (int i = 0; i < hist_size; i++) {
+        sum += hist_ptr[i];
+        double percentile = sum / total;
+        if (percentile >= lower) {
+            lower_threshold = i;
+            break;
+        }
+    }
+    sum = 0.0;
+    for (int i = hist_size - 1; i >= 0; i--) {
+        sum += hist_ptr[i];
+        double percentile = sum / total;
+        if (percentile <= upper) {
+            upper_threshold = i;
+            break;
+        }
+    }
+
+    double gain = (max_int - min_int) / (upper_threshold - lower_threshold);
+    double offset = min_int - gain * lower_threshold;
+
+    cuda::multiply(channel, gain, channel);
+    cuda::add(channel, offset, channel);
+
+    cuda::threshold(channel, channel, 0, 255, THRESH_TRUNC);
+
+    channel.convertTo(channel, CV_8U);
+}
+
+void stretch_and_clahe(cuda::GpuMat& channel, double lower, double upper, double min_int, double max_int,
+                       const Ptr<cuda::CLAHE>& clahe) {
+    stretch(channel, lower, upper, min_int, max_int);
+    clahe->apply(channel, channel);
+}
+
+//
+//void stretch_rgb(cuda::GpuMat& rgb_channel, double lower, double upper, double min_int, double max_int, Ptr<cuda::CLAHE> clahe) {
+//    std::vector<cuda::GpuMat> channels(3);
+//    cuda::split(rgb_channel, channels);
+//
+//    stretch_and_clahe(channels[0], lower, upper, min_int, max_int, clahe);
+//    stretch_and_clahe(channels[1], lower, upper, min_int, max_int, clahe);
+//    stretch_and_clahe(channels[2], lower, upper, min_int, max_int, clahe);
+//
+//    std::vector<cuda::GpuMat> channels_out(3);
+//
+//    cuda::merge(channels_out, rgb_channel);
+//}
+
+void fsi_from_channels(cuda::GpuMat& blue, cuda::GpuMat& c_800, cuda::GpuMat& c_975, double lower,
+                       double upper, double min_int, double max_int, cuda::GpuMat &fsi) {
+    cv::Ptr<cuda::CLAHE> clahe = cv::cuda::createCLAHE(5, cv::Size(10, 10));
+
+    stretch_and_clahe(blue, lower, upper, min_int, max_int, clahe);
+    stretch_and_clahe(c_800, lower, upper, min_int, max_int, clahe);
+    stretch_and_clahe(c_975, lower, upper, min_int, max_int, clahe);
+
+    std::vector<cv::cuda::GpuMat> channels;
+    channels.push_back(blue);
+    channels.push_back(c_800);
+    channels.push_back(c_975);
+
+    cuda::merge(channels, fsi);
+}
+
 void MergeThread(void *_Frames) {
     queue<EnumeratedFrame *> **FramesQueue = (queue<EnumeratedFrame *> **) _Frames;
     cv::Mat Frames[3], res;
@@ -627,11 +710,16 @@ void MergeThread(void *_Frames) {
 
         cudaFrames[0] = cudaBGR[2];
 
-        for (int i = 0; i < 3; i++) {
-            cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
-            cv::cuda::normalize(cudaFrames_equalized[i], cudaFrames_normalized[i], 0, 255, cv::NORM_MINMAX, CV_8U);
+        if (use_clahe_stretch){
+            fsi_from_channels(cudaFrames[0], cudaFrames[1], cudaFrames[2], 0.02, 0.98, 25, 235, cudaFSI);
         }
-        cv::cuda::merge(cudaFrames_normalized, cudaFSI);
+        else {
+            for (int i = 0; i < 3; i++) {
+                cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
+                cv::cuda::normalize(cudaFrames_equalized[i], cudaFrames_normalized[i], 0, 255, cv::NORM_MINMAX, CV_8U);
+            }
+            cv::cuda::merge(cudaFrames_normalized, cudaFSI);
+        }
         cudaFSI.download(res_fsi);
 
         frame_count++;
