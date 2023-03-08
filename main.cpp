@@ -87,7 +87,7 @@ ofstream outfile;
 json config;
 string output_dir;
 
-bool use_clahe_stretch = true;
+bool use_clahe_stretch = false;
 bool save_all_channels = true;
 bool _abort = false, mp4_init = false;
 float avg_coloring = 0;
@@ -562,7 +562,7 @@ void GrabThread(void *_StreamInfo) {
 }
 
 void stretch(cuda::GpuMat& channel, double lower, double upper, double min_int, double max_int) {
-    cuda::normalize(channel, channel, 0, 1, NORM_MINMAX, CV_32F);
+    cuda::normalize(channel, channel, 0, 255, NORM_MINMAX, CV_8U);
     cuda::GpuMat hist;
     cuda::GpuMat b(1, 256, CV_32F);
 
