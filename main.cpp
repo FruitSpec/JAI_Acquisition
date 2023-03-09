@@ -87,7 +87,7 @@ ofstream outfile;
 json config;
 string output_dir;
 
-bool use_clahe_stretch = false;
+bool use_clahe_stretch = true;
 bool save_all_channels = true;
 bool _abort = false, mp4_init = false;
 float avg_coloring = 0;
@@ -276,10 +276,8 @@ int main() {
         if (c == 'q')
             break;
 
-        cout << 1 << endl;
         // Get device parameters need to control streaming
         PvGenParameterArray *lDeviceParams = lDevice->GetParameters();
-        cout << 2 << endl;
 
         // Map the GenICam AcquisitionStart and AcquisitionStop commands
         PvGenCommand *lStart = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStart"));
@@ -287,7 +285,6 @@ int main() {
 
         queue<EnumeratedFrame *> *Frames[3] = {&(MyStreamInfos[0]->Frames), &(MyStreamInfos[1]->Frames),
                                                &(MyStreamInfos[2]->Frames)};
-        cout << 3 << endl;
         lDevice->StreamEnable();
         int file_index = MP4CreateFirstTime(height, width, output_dir);
 
@@ -561,54 +558,62 @@ void GrabThread(void *_StreamInfo) {
     cout << StreamIndex << ": Acquisition end with " << CurrentBlockID << endl;
 }
 
-void stretch(cuda::GpuMat& channel, double lower, double upper, double min_int, double max_int) {
+void stretch(cuda::GpuMat& channel, double lower = 0.02, double upper = 0.98, double min_int = 25, double max_int = 235) {
+    const int hist_size = 256;
+    int lower_threshold = 0, upper_threshold = 255;
+    double percentile = 0.0;
+
     cuda::normalize(channel, channel, 0, 255, NORM_MINMAX, CV_8U);
-    cuda::GpuMat hist;
-    cuda::GpuMat b(1, 256, CV_32F);
+    cuda::GpuMat gpu_hist;
+    cv::Mat cpu_hist;
 
-    cuda::calcHist(channel, hist, b);
+    cuda::calcHist(channel, gpu_hist);
+    gpu_hist.download(cpu_hist);
+    cv::Scalar total = cuda::sum(gpu_hist);
 
-    double lower_threshold, upper_threshold;
+    cout << 1 << endl;
+    // Calculate lower and upper threshold indices for gain
 
-    // Calculate lower and upper threshold indices
-    auto hist_ptr = hist.ptr<float>();
-    int hist_size = hist.rows * hist.cols;
-    double total = 0.0;
+    cout << 2 << endl;
     for (int i = 0; i < hist_size; i++) {
-        total += hist_ptr[i];
-    }
-    double sum = 0.0;
-    for (int i = 0; i < hist_size; i++) {
-        sum += hist_ptr[i];
-        double percentile = sum / total;
+        percentile += cpu_hist.at<int>(0, i) / total[0];
         if (percentile >= lower) {
             lower_threshold = i;
             break;
         }
     }
-    sum = 0.0;
-    for (int i = hist_size - 1; i >= 0; i--) {
-        sum += hist_ptr[i];
-        double percentile = sum / total;
+
+    cout << 3 << endl;
+    percentile = 0.0;
+    for (int i = 0; i < hist_size; i++) {
+        percentile += cpu_hist.at<int>(0, i) / total[0];
         if (percentile <= upper) {
             upper_threshold = i;
             break;
         }
     }
 
-    double gain = (max_int - min_int) / (upper_threshold - lower_threshold);
-    double offset = min_int - gain * lower_threshold;
+    cout << 4 << endl;
+
+    double gain = (max_int - min_int) / upper_threshold;
+    double offset = min_int;
 
     cuda::multiply(channel, gain, channel);
     cuda::add(channel, offset, channel);
 
-    cuda::threshold(channel, channel, 0, 255, THRESH_TRUNC);
+    cout << 5 << endl;
+    cv::Scalar lower_scalar(0);
+    cv::Scalar upper_scalar(255);
 
-    channel.convertTo(channel, CV_8U);
+    // Clipping to range [0, 255]
+    cout << 6 << endl;
+    cv::cuda::max(lower_scalar, channel, channel);
+    cv::cuda::min(upper_scalar, channel, channel);
+    cout << 7 << endl;
 }
 
-void stretch_and_clahe(cuda::GpuMat& channel, double lower, double upper, double min_int, double max_int,
-                       const Ptr<cuda::CLAHE>& clahe) {
+void stretch_and_clahe(cuda::GpuMat& channel, const Ptr<cuda::CLAHE>& clahe, double lower = 0.02, double upper = 0.98, double min_int = 25,
+                       double max_int = 235) {
     stretch(channel, lower, upper, min_int, max_int);
     clahe->apply(channel, channel);
 }
@@ -627,13 +632,13 @@ void stretch_and_clahe(cuda::GpuMat& channel, double lower, double upper, double
 //    cuda::merge(channels_out, rgb_channel);
 //}
 
-void fsi_from_channels(cuda::GpuMat& blue, cuda::GpuMat& c_800, cuda::GpuMat& c_975, double lower,
-                       double upper, double min_int, double max_int, cuda::GpuMat &fsi) {
+void fsi_from_channels(cuda::GpuMat& blue, cuda::GpuMat& c_800, cuda::GpuMat& c_975, cuda::GpuMat &fsi,
+                       double lower = 0.02, double upper = 0.98, double min_int = 25, double max_int = 235) {
     cv::Ptr<cuda::CLAHE> clahe = cv::cuda::createCLAHE(5, cv::Size(10, 10));
 
-    stretch_and_clahe(blue, lower, upper, min_int, max_int, clahe);
-    stretch_and_clahe(c_800, lower, upper, min_int, max_int, clahe);
-    stretch_and_clahe(c_975, lower, upper, min_int, max_int, clahe);
+    stretch_and_clahe(blue, clahe, lower, upper, min_int, max_int);
+    stretch_and_clahe(c_800, clahe, lower, upper, min_int, max_int);
+    stretch_and_clahe(c_975, clahe, lower, upper, min_int, max_int);
 
     std::vector<cv::cuda::GpuMat> channels;
     channels.push_back(blue);
@@ -711,7 +716,7 @@ void MergeThread(void *_Frames) {
         cudaFrames[0] = cudaBGR[2];
 
         if (use_clahe_stretch){
-            fsi_from_channels(cudaFrames[0], cudaFrames[1], cudaFrames[2], 0.02, 0.98, 25, 235, cudaFSI);
+            fsi_from_channels(cudaFrames[0], cudaFrames[1], cudaFrames[2], cudaFSI);
         }
         else {
             for (int i = 0; i < 3; i++) {
