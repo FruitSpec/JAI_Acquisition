@@ -87,7 +87,7 @@ ofstream outfile;
 json config;
 string output_dir;
 
-bool use_clahe_stretch = true;
+bool use_clahe_stretch = false;
 bool save_all_channels = true;
 bool _abort = false, mp4_init = false;
 float avg_coloring = 0;
@@ -248,15 +248,15 @@ void setup_ZED(int file_index) {
 
 int main() {
     cout << "**************** CODEC: nvv4l2h265enc ****************" << endl;
-    cout << "**************** bitrate: 25M ****************" << endl << endl;
+    cout << "**************** bitrate: 25M ****************" << endl;
     cout << "**************** fixed JAI sync ****************" << endl << endl;
 
-    PvDevice *lDevice = NULL;
-    PvStream *lStreams[3] = {NULL, NULL, NULL};
+    PvDevice *lDevice = nullptr;
+    PvStream *lStreams[3] = {nullptr, nullptr, nullptr};
     BufferList lBufferLists[3];
     StreamInfo *MyStreamInfos[3];
 
-    pthread_cond_init(&GrabEvent, NULL)
+    pthread_cond_init(&GrabEvent, nullptr)
 
     PV_SAMPLE_INIT();
 
@@ -267,7 +267,7 @@ int main() {
 
     if (!setup_JAI(MyStreamInfos, lDevice, lBufferLists))
         exit(-1);
-    while (1) {
+    while (true) {
         _abort = false;
         mp4_init = false;
 
@@ -571,10 +571,8 @@ void stretch(cuda::GpuMat& channel, double lower = 0.02, double upper = 0.98, do
     gpu_hist.download(cpu_hist);
     cv::Scalar total = cuda::sum(gpu_hist);
 
-    cout << 1 << endl;
     // Calculate lower and upper threshold indices for gain
 
-    cout << 2 << endl;
     for (int i = 0; i < hist_size; i++) {
         percentile += cpu_hist.at<int>(0, i) / total[0];
         if (percentile >= lower) {
@@ -583,7 +581,6 @@ void stretch(cuda::GpuMat& channel, double lower = 0.02, double upper = 0.98, do
         }
     }
 
-    cout << 3 << endl;
     percentile = 0.0;
     for (int i = 0; i < hist_size; i++) {
         percentile += cpu_hist.at<int>(0, i) / total[0];
@@ -593,23 +590,18 @@ void stretch(cuda::GpuMat& channel, double lower = 0.02, double upper = 0.98, do
         }
     }
 
-    cout << 4 << endl;
-
     double gain = (max_int - min_int) / upper_threshold;
     double offset = min_int;
 
     cuda::multiply(channel, gain, channel);
     cuda::add(channel, offset, channel);
 
-    cout << 5 << endl;
     cv::Scalar lower_scalar(0);
     cv::Scalar upper_scalar(255);
 
     // Clipping to range [0, 255]
-    cout << 6 << endl;
     cv::cuda::max(lower_scalar, channel, channel);
     cv::cuda::min(upper_scalar, channel, channel);
-    cout << 7 << endl;
 }
 
 void stretch_and_clahe(cuda::GpuMat& channel, const Ptr<cuda::CLAHE>& clahe, double lower = 0.02, double upper = 0.98, double min_int = 25,
@@ -691,7 +683,7 @@ void MergeThread(void *_Frames) {
         if (e_frames[0]->BlockID != e_frames[1]->BlockID or e_frames[0]->BlockID != e_frames[2]->BlockID) {
             int max_id = std::max({e_frames[0]->BlockID, e_frames[1]->BlockID, e_frames[2]->BlockID});
             outfile << "MERGE DROP - AFTER FRAME NO. " << --frame_no << endl;
-            cout << "MERGE DROP - AFTER FRAME NO. " << frame_no << endl;
+//            cout << "MERGE DROP - AFTER FRAME NO. " << frame_no << endl;
             for (int j = 0; j < 3; j++) {
                 if (e_frames[j]->BlockID == max_id) {
                     grabbed[j] = true;
