@@ -581,8 +581,9 @@ void stretch(cuda::GpuMat& channel, double lower = 0.02, double upper = 0.98, do
         }
     }
 
+    cout << 3 << endl;
     percentile = 0.0;
-    for (int i = 0; i < hist_size; i++) {
+    for (int i = hist_size - 1; i > 0; i--) {
         percentile += cpu_hist.at<int>(0, i) / total[0];
         if (percentile <= upper) {
             upper_threshold = i;
@@ -609,20 +610,6 @@ void stretch_and_clahe(cuda::GpuMat& channel, const Ptr<cuda::CLAHE>& clahe, dou
     stretch(channel, lower, upper, min_int, max_int);
     clahe->apply(channel, channel);
 }
-
-//
-//void stretch_rgb(cuda::GpuMat& rgb_channel, double lower, double upper, double min_int, double max_int, Ptr<cuda::CLAHE> clahe) {
-//    std::vector<cuda::GpuMat> channels(3);
-//    cuda::split(rgb_channel, channels);
-//
-//    stretch_and_clahe(channels[0], lower, upper, min_int, max_int, clahe);
-//    stretch_and_clahe(channels[1], lower, upper, min_int, max_int, clahe);
-//    stretch_and_clahe(channels[2], lower, upper, min_int, max_int, clahe);
-//
-//    std::vector<cuda::GpuMat> channels_out(3);
-//
-//    cuda::merge(channels_out, rgb_channel);
-//}
 
 void fsi_from_channels(cuda::GpuMat& blue, cuda::GpuMat& c_800, cuda::GpuMat& c_975, cuda::GpuMat &fsi,
                        double lower = 0.02, double upper = 0.98, double min_int = 25, double max_int = 235) {
@@ -701,6 +688,7 @@ void MergeThread(void *_Frames) {
 
         cv::cuda::demosaicing(cudaFrames[0], cudaFrames[0], cv::COLOR_BayerBG2BGR);
         cv::cuda::split(cudaFrames[0], cudaBGR);
+
         cudaFrames[0].download(res_bgr);
         cudaFrames[2].download(res_800);
         cudaFrames[1].download(res_975);
