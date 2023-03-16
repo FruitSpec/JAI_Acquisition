@@ -5,8 +5,6 @@ using namespace cuda;
 using namespace sl;
 using namespace std;
 
-ofstream frame_drop_log_file;
-
 /// Code starts here
 
 bool SelectDeviceLocally(PvString *aConnectionID)
@@ -129,9 +127,11 @@ void FreeStreamBuffers(BufferList *aBufferList) {
     aBufferList->clear();
 }
 
-VideoConfig * parse_args(int fps, int exposure_rgb, int exposure_800, int exposure_975, string output_dir,
-                         bool output_fsi, bool output_rgb, bool output_800, bool output_975, bool output_svo,
-                         bool view){
+VideoConfig * parse_args(int fps, int exposure_rgb = 500, int exposure_800 = 1000, int exposure_975 = 3000,
+                         const string & output_dir = string("/home/mic-730ai/Desktop/JAI_Results"), bool output_fsi = false,
+                         bool output_rgb = false, bool output_800 = false, bool output_975 = false,
+                         bool output_svo = false, bool view = false, bool use_clahe_stretch = false,
+                         bool debug_mode = false){
     VideoConfig *video_conf = new VideoConfig;
 
     video_conf->FPS = fps;
@@ -145,20 +145,22 @@ VideoConfig * parse_args(int fps, int exposure_rgb, int exposure_800, int exposu
     video_conf->output_975 = output_975;
     video_conf->output_svo = output_svo;
     video_conf->view = view;
+    video_conf->use_clahe_stretch = use_clahe_stretch;
 
-    std::cout << "FPS: " << video_conf->FPS << std::endl;
-    if (video_conf->view)
-        std::cout << "view mode: on" << std::endl;
-    else {
-        std::cout << "view mode: off" << std::endl;
-        std::cout << "output-fsi: " << std::boolalpha << video_conf->output_fsi << std::endl;
-        std::cout << "output-rgb: " << std::boolalpha << video_conf->output_rgb << std::endl;
-        std::cout << "output-800: " << std::boolalpha << video_conf->output_800 << std::endl;
-        std::cout << "output-975: " << std::boolalpha << video_conf->output_975 << std::endl;
-        std::cout << "output-svo: " << std::boolalpha << video_conf->output_svo << std::endl;
-        std::cout << "output-dir: " << std::boolalpha << video_conf->output_dir << std::endl;
+    if (debug_mode) {
+        std::cout << "FPS: " << video_conf->FPS << std::endl;
+        if (video_conf->view)
+            std::cout << "view mode: on" << std::endl;
+        else {
+            std::cout << "view mode: off" << std::endl;
+            std::cout << "output-fsi: " << std::boolalpha << video_conf->output_fsi << std::endl;
+            std::cout << "output-rgb: " << std::boolalpha << video_conf->output_rgb << std::endl;
+            std::cout << "output-800: " << std::boolalpha << video_conf->output_800 << std::endl;
+            std::cout << "output-975: " << std::boolalpha << video_conf->output_975 << std::endl;
+            std::cout << "output-svo: " << std::boolalpha << video_conf->output_svo << std::endl;
+            std::cout << "output-dir: " << std::boolalpha << video_conf->output_dir << std::endl;
+        }
     }
-
     return video_conf;
 }
 
@@ -215,7 +217,7 @@ bool setup_JAI(AcquisitionParameters &acq) {
 
 void MP4CreateFirstTime(AcquisitionParameters &acq){
     bool is_exist = false;
-    int i = 0;
+    short i = 0;
     char stat_FSI[100], stat_RGB[100], stat_800[100], stat_975[100], stat_SVO[100];
     string f_fsi, f_rgb, f_800, f_975;
     char zed_filename[100];
@@ -241,6 +243,10 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
     } while (is_exist);
 
     acq.video_conf->file_index = i;
+
+    char log_filename[100];
+    sprintf(log_filename, (acq.video_conf->output_dir + string("/frame_drop_%d.log")).c_str(), i);
+    acq.frame_drop_log_file.open(log_filename, std::ios_base::app); // append instead of overwrite
 
     string gst_3c = string("appsrc ! video/x-raw, format=BGR, width=(int)") + width_s +
             string(", height=(int)") + height_s + string(", framerate=(fraction)") + FPS_s +
@@ -309,7 +315,7 @@ void ZedThread(AcquisitionParameters &acq) {
     for (int i = 1; acq.is_running; i++) {
         ERROR_CODE err = acq.zed.grab();
         if (err != ERROR_CODE::SUCCESS)
-            frame_drop_log_file << "ZED FRAME DROP - FRAME NO. " << i << endl;
+            acq.frame_drop_log_file << "ZED FRAME DROP - FRAME NO. " << i << endl;
     }
 
     if (acq.video_conf->output_svo)
@@ -338,7 +344,7 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
 
                 CurrentBlockID = lBuffer->GetBlockID();
                 if (CurrentBlockID != PrevBlockID + 1 and PrevBlockID != 0) {
-                    frame_drop_log_file << "JAI STREAM " << stream_index << " - FRAME DROP - FRAME No. " << PrevBlockID << endl;
+                    acq.frame_drop_log_file << "JAI STREAM " << stream_index << " - FRAME DROP - FRAME No. " << PrevBlockID << endl;
                 }
                 PrevBlockID = CurrentBlockID;
                 height = lBuffer->GetImage()->GetHeight(), width = lBuffer->GetImage()->GetWidth();
@@ -363,6 +369,75 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
         }
     }
     cout << stream_index << ": Acquisition end with " << CurrentBlockID << endl;
+}
+
+void stretch(cuda::GpuMat& channel, double lower = 0.02, double upper = 0.98, double min_int = 25, double max_int = 235) {
+    const int hist_size = 256;
+    int lower_threshold = 0, upper_threshold = 255;
+    double percentile = 0.0;
+
+    cuda::normalize(channel, channel, 0, 255, NORM_MINMAX, CV_8U);
+    cuda::GpuMat gpu_hist;
+    cv::Mat cpu_hist;
+
+    cuda::calcHist(channel, gpu_hist);
+    gpu_hist.download(cpu_hist);
+    cv::Scalar total = cuda::sum(gpu_hist);
+
+    // Calculate lower and upper threshold indices for gain
+
+    for (int i = 0; i < hist_size; i++) {
+        percentile += cpu_hist.at<int>(0, i) / total[0];
+        if (percentile >= lower) {
+            lower_threshold = i;
+            break;
+        }
+    }
+
+    cout << 3 << endl;
+    percentile = 0.0;
+    for (int i = hist_size - 1; i > 0; i--) {
+        percentile += cpu_hist.at<int>(0, i) / total[0];
+        if (percentile <= upper) {
+            upper_threshold = i;
+            break;
+        }
+    }
+
+    double gain = (max_int - min_int) / upper_threshold;
+    double offset = min_int;
+
+    cuda::multiply(channel, gain, channel);
+    cuda::add(channel, offset, channel);
+
+    cv::Scalar lower_scalar(0);
+    cv::Scalar upper_scalar(255);
+
+    // Clipping to range [0, 255]
+    cv::cuda::max(lower_scalar, channel, channel);
+    cv::cuda::min(upper_scalar, channel, channel);
+}
+
+void stretch_and_clahe(cuda::GpuMat& channel, const Ptr<cuda::CLAHE>& clahe, double lower = 0.02, double upper = 0.98, double min_int = 25,
+                       double max_int = 235) {
+    stretch(channel, lower, upper, min_int, max_int);
+    clahe->apply(channel, channel);
+}
+
+void fsi_from_channels(cuda::GpuMat& blue, cuda::GpuMat& c_800, cuda::GpuMat& c_975, cuda::GpuMat &fsi,
+                       double lower = 0.02, double upper = 0.98, double min_int = 25, double max_int = 235) {
+    cv::Ptr<cuda::CLAHE> clahe = cv::cuda::createCLAHE(5, cv::Size(10, 10));
+
+    stretch_and_clahe(blue, clahe, lower, upper, min_int, max_int);
+    stretch_and_clahe(c_800, clahe, lower, upper, min_int, max_int);
+    stretch_and_clahe(c_975, clahe, lower, upper, min_int, max_int);
+
+    std::vector<cv::cuda::GpuMat> channels;
+    channels.push_back(blue);
+    channels.push_back(c_800);
+    channels.push_back(c_975);
+
+    cuda::merge(channels, fsi);
 }
 
 void MergeThread(AcquisitionParameters &acq) {
@@ -403,7 +478,7 @@ void MergeThread(AcquisitionParameters &acq) {
             break;
         if (e_frames[0]->BlockID != e_frames[1]->BlockID or e_frames[0]->BlockID != e_frames[2]->BlockID) {
             int max_id = std::max({e_frames[0]->BlockID, e_frames[1]->BlockID, e_frames[2]->BlockID});
-            frame_drop_log_file << "MERGE DROP - AFTER FRAME NO. " << --frame_no << endl;
+            acq.frame_drop_log_file << "MERGE DROP - AFTER FRAME NO. " << --frame_no << endl;
             for (int i = 0; i < 3; i++) {
                 if (e_frames[i]->BlockID == max_id)
                     grabbed[i] = true;
@@ -424,11 +499,17 @@ void MergeThread(AcquisitionParameters &acq) {
 
         cudaFrames[0] = cudaBGR[2]; // just pick the blue from the bayer
 
-        for (int i = 0; i < 3; i++) {
-            cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
-            cv::cuda::normalize(cudaFrames_equalized[i], cudaFrames_normalized[i], 0, 255, cv::NORM_MINMAX, CV_8U);
+        if (acq.video_conf->use_clahe_stretch){
+            fsi_from_channels(cudaFrames[0], cudaFrames[1], cudaFrames[2], cudaFSI);
         }
-        cv::cuda::merge(cudaFrames_normalized, cudaFSI);
+        else {
+            for (int i = 0; i < 3; i++) {
+                cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
+                cv::cuda::normalize(cudaFrames_equalized[i], cudaFrames_normalized[i], 0, 255, cv::NORM_MINMAX, CV_8U);
+            }
+            cv::cuda::merge(cudaFrames_normalized, cudaFSI);
+        }
+
         cudaFSI.download(res_fsi);
 
         frame_count++;

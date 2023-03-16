@@ -7,9 +7,10 @@
 
 class JaiZed {
 public:
-    bool connect_cameras_wrapper(int fps, int exposure_rgb, int exposure_800, int exposure_975,
-                                 const std::string& output_dir, bool output_fsi, bool output_rgb, bool output_800,
-                                 bool output_975, bool output_svo, bool view);
+
+    bool connect_cameras_wrapper(int fps, int exposure_rgb, int exposure_800, int exposure_975, string output_dir,
+                                 bool output_fsi, bool output_rgb, bool output_800, bool output_975, bool output_svo,
+                                 bool view, bool use_clahe_stretch, bool debug_mode);
 
     bool start_acquisition_wrapper();
 

@@ -52,6 +52,7 @@ struct VideoConfig {
     int64_t width = 1536, height = 2048;
     bool output_fsi = false, output_rgb = false, output_800 = false, output_975 = false, output_svo = false;
     bool view = false;
+    bool use_clahe_stretch = false;
     string output_dir = string("/home/mic-730ai/Desktop/JAI_Results");
 };
 
@@ -68,6 +69,7 @@ struct AcquisitionParameters {
     pthread_mutex_t acq_start_mtx = PTHREAD_MUTEX_INITIALIZER;
     VideoWriter mp4_FSI, mp4_BGR, mp4_800, mp4_975;
     bool is_connected, is_running;
+    ofstream frame_drop_log_file;
 };
 
 bool SelectDeviceLocally(PvString *aConnectionID);
@@ -82,9 +84,9 @@ void CreateStreamBuffers(PvDevice *&aDevice, PvStream *aStream, BufferList *aBuf
 
 void FreeStreamBuffers(BufferList *aBufferList);
 
-VideoConfig * parse_args(int fps, int exposure_rgb, int exposure_800, int exposure_975, string output_dir,
-                         bool output_fsi, bool output_rgb, bool output_800, bool output_975, bool output_svo,
-                         bool view);
+VideoConfig * parse_args(int fps, int exposure_rgb, int exposure_800, int exposure_975, const string& output_dir,
+                         bool output_fsi, bool output_rgb, bool output_800, bool output_975, bool output_svo, bool view,
+                         bool use_clahe_stretch, bool debug_mode);
 
 bool setup_JAI(AcquisitionParameters &acq);
 
