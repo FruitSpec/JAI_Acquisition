@@ -68,15 +68,15 @@ struct AcquisitionParameters {
     pthread_mutex_t grab_mtx = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_t acq_start_mtx = PTHREAD_MUTEX_INITIALIZER;
     VideoWriter mp4_FSI, mp4_BGR, mp4_800, mp4_975;
-    bool is_connected, is_running;
+    bool is_connected, is_running, debug;
     ofstream frame_drop_log_file;
 };
 
 bool SelectDeviceLocally(PvString *aConnectionID);
 
-PvDevice *ConnectToDevice(const PvString &aConnectionID);
+PvDevice *ConnectToDevice(const PvString &aConnectionID, bool debug);
 
-PvStream *OpenStream(const PvString &aConnectionID);
+PvStream *OpenStream(const PvString &aConnectionID, bool debug);
 
 void ConfigureStream(PvDevice *&aDevice, PvStream *aStream, int channel);
 
@@ -96,7 +96,7 @@ string gs_sink_builder(int file_index, const string& output_type_name, const str
 
 bool exists(char path[100]);
 
-bool connect_ZED(AcquisitionParameters &acq);
+bool connect_ZED(AcquisitionParameters &acq, int fps);
 
 void GrabThread(int stream_index, AcquisitionParameters &acq);
 
@@ -104,7 +104,7 @@ void ZedThread(AcquisitionParameters &acq);
 
 void MergeThread(AcquisitionParameters &acq);
 
-bool connect_cameras(AcquisitionParameters &acq);
+bool connect_cameras(AcquisitionParameters &acq, int fps);
 
 bool start_acquisition(AcquisitionParameters &acq);
 
