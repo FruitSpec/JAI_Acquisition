@@ -35,6 +35,11 @@ using namespace std;
 
 typedef list<PvBuffer *> BufferList;
 
+struct JaiZedStatus {
+    bool jai_connected;
+    bool zed_connected;
+};
+
 typedef struct {
     cv::Mat frame;
     int BlockID;
@@ -104,9 +109,9 @@ void ZedThread(AcquisitionParameters &acq);
 
 void MergeThread(AcquisitionParameters &acq);
 
-bool connect_cameras(AcquisitionParameters &acq, int fps);
+JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps);
 
-bool start_acquisition(AcquisitionParameters &acq);
+void start_acquisition(AcquisitionParameters &acq);
 
 void stop_acquisition(AcquisitionParameters &acq);
 

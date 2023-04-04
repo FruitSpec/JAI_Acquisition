@@ -521,55 +521,51 @@ void MergeThread(AcquisitionParameters &acq) {
     }
 }
 
-bool connect_cameras(AcquisitionParameters &acq, int fps){
+JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps){
     PvStream *lStreams[3] = {NULL, NULL, NULL};
-    int file_index;
 
     // check if this command is necessary
     PV_SAMPLE_INIT();
 
     pthread_cond_init(&acq.GrabEvent, NULL);
 
-    bool jai_success, zed_success;
-
-    jai_success = setup_JAI(acq);
-    zed_success = connect_ZED(acq, fps);
+    JaiZedStatus jzs {
+        setup_JAI(acq),
+        connect_ZED(acq, fps)
+    };
 
     if (acq.debug){
-        cout << (jai_success ? "JAI connected" : "JAI NOT CONNECTED") << endl;
-        cout << (zed_success ? "ZED connected" : "ZED NOT CONNECTED") << endl;
+        cout << (jzs.jai_connected ? "JAI connected" : "JAI NOT CONNECTED") << endl;
+        cout << (jzs.zed_connected ? "ZED connected" : "ZED NOT CONNECTED") << endl;
     }
 
-    acq.is_connected = jai_success and zed_success;
-    return acq.is_connected;
+    acq.is_connected = jzs.jai_connected and jzs.zed_connected;
+    return jzs;
 }
 
-bool start_acquisition(AcquisitionParameters &acq) {
+void start_acquisition(AcquisitionParameters &acq) {
     PvGenParameterArray *lDeviceParams;
     PvGenCommand *lStart;
 
-    if (not acq.is_connected) {
-        if (acq.debug)
-            cout << "NOT CONNECTED" << endl;
-        return false;
+    if (acq.is_connected) {
+        set_acquisition_parameters(acq);
+
+        acq.is_running = true;
+        MP4CreateFirstTime(acq);
+
+        // Get device parameters need to control streaming - set acquisition start command
+        lDeviceParams = acq.lDevice->GetParameters();
+        lStart = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStart"));
+
+        acq.zed_t = thread(ZedThread, ref(acq));
+        lStart->Execute();
+        acq.jai_t0 = thread(GrabThread, 0, ref(acq));
+        acq.jai_t1 = thread(GrabThread, 1, ref(acq));
+        acq.jai_t2 = thread(GrabThread, 2, ref(acq));
+        acq.merge_t = thread(MergeThread, ref(acq));
     }
-
-    set_acquisition_parameters(acq);
-
-    acq.is_running = true;
-    MP4CreateFirstTime(acq);
-
-    // Get device parameters need to control streaming - set acquisition start command
-    lDeviceParams = acq.lDevice->GetParameters();
-    lStart = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStart"));
-
-    acq.zed_t = thread(ZedThread, ref(acq));
-    lStart->Execute();
-    acq.jai_t0 = thread(GrabThread, 0, ref(acq));
-    acq.jai_t1 = thread(GrabThread, 1, ref(acq));
-    acq.jai_t2 = thread(GrabThread, 2, ref(acq));
-    acq.merge_t = thread(MergeThread, ref(acq));
-    return true;
+    else if (acq.debug)
+        cout << "NOT CONNECTED" << endl;
 }
 
 void stop_acquisition(AcquisitionParameters &acq) {
@@ -628,6 +624,7 @@ void disconnect_cameras(AcquisitionParameters &acq){
     pthread_cond_destroy(&acq.GrabEvent);
     for (int i = 0; i < 3; i++) pthread_cond_destroy(&acq.MergeFramesEvent[i]);
 
+    acq.is_connected = false;
     // check if necessary
     PV_SAMPLE_TERMINATE();
 }

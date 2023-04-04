@@ -2,25 +2,30 @@
 #define JAIZED_HPP
 
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+#include <pybind11/functional.h>
+#include <pybind11/operators.h>
+#include <pybind11/pytypes.h>
 #include "acquisition.hpp"
 #include <string>
+
+namespace py = pybind11;
 
 class JaiZed {
 public:
 
-    bool connect_cameras_wrapper(int fps, bool debug_mode);
+    py::tuple connect_cameras_wrapper(int fps, bool debug_mode);
 
-    bool start_acquisition_wrapper(int fps, int exposure_rgb, int exposure_800, int exposure_975, const string& output_dir,
+    void start_acquisition_wrapper(int fps, int exposure_rgb, int exposure_800, int exposure_975, const string& output_dir,
                                  bool output_fsi, bool output_rgb, bool output_800, bool output_975, bool output_svo,
                                  bool view, bool use_clahe_stretch, bool debug_mode);
 
-    bool stop_acquisition_wrapper();
+    void stop_acquisition_wrapper();
 
-    bool disconnect_cameras_wrapper();
+    void disconnect_cameras_wrapper();
 
 private:
     static AcquisitionParameters acq_;
-    static bool connected, started;
 };
 
 #endif // JAIZED_HPP

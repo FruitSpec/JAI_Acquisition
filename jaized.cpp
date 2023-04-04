@@ -3,45 +3,35 @@
 
 namespace py = pybind11;
 
-bool JaiZed::connect_cameras_wrapper(int fps, bool debug_mode) {
+py::tuple JaiZed::connect_cameras_wrapper(int fps, bool debug_mode) {
     acq_.debug = debug_mode;
-    connected = connect_cameras(acq_, fps);
-    return connected;
+    JaiZedStatus jzs = connect_cameras(acq_, fps);
+    py::tuple tpl = py::make_tuple(jzs.jai_connected, jzs.zed_connected);
+    acq_.is_connected = jzs.jai_connected and jzs.zed_connected;
+    return tpl;
 }
 
-bool JaiZed::start_acquisition_wrapper(int fps, int exposure_rgb, int exposure_800, int exposure_975,
+void JaiZed::start_acquisition_wrapper(int fps, int exposure_rgb, int exposure_800, int exposure_975,
                                      const string& output_dir, bool output_fsi, bool output_rgb, bool output_800,
                                      bool output_975, bool output_svo, bool view, bool use_clahe_stretch,
                                      bool debug_mode) {
     acq_.video_conf = parse_args(fps, exposure_rgb, exposure_800, exposure_975, output_dir, output_fsi, output_rgb,
                     output_800, output_975, output_svo, view, use_clahe_stretch, debug_mode);
-    if (connected) {
-        started = start_acquisition(acq_);
-        return started;
-    }
-    return false;
+    start_acquisition(acq_);
 }
 
-bool JaiZed::stop_acquisition_wrapper() {
-    if (connected) {
+void JaiZed::stop_acquisition_wrapper() {
+    if (acq_.is_running) {
         stop_acquisition(acq_);
-        started = false;
-        return true;
     }
-    return false;
 }
 
-bool JaiZed::disconnect_cameras_wrapper() {
-    if (connected and not started) {
+void JaiZed::disconnect_cameras_wrapper() {
+    if (acq_.is_connected and not acq_.is_running)
         disconnect_cameras(acq_);
-        return true;
-    }
-    return false;
 }
 
 AcquisitionParameters JaiZed::acq_;
-bool JaiZed::connected = false;
-bool JaiZed::started = false;
 
 PYBIND11_MODULE(jaized, m) {
     py::class_<JaiZed>(m, "JaiZed")
