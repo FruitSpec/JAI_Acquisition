@@ -3,7 +3,7 @@ project (JAI_Acquisition)
 set(CMAKE_CXX_STANDARD 17)
 
 ADD_SUBDIRECTORY(pybind11)
-pybind11_add_module(jaized jaized.cpp acquisition.cpp batcher.cpp)
+pybind11_add_module(jaized jaized.cpp acquisition.cpp streamer.cpp)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 add_definitions(-D_UNIX_=1)
