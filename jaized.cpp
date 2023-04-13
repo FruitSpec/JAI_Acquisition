@@ -1,11 +1,33 @@
 #include "jaized.hpp"
 
+#include <utility>
 
-namespace py = pybind11;
+// Type wrappers
+
+EnumeratedJAIFrameWrapper::EnumeratedJAIFrameWrapper(EnumeratedJAIFrame e_frame){
+    this->e_frame = std::move(e_frame);
+}
+
+int EnumeratedJAIFrameWrapper::get_frame_number() const {
+    return this->e_frame.BlockID;
+}
+
+py::array_t<uint8_t> EnumeratedJAIFrameWrapper::get_np_frame() {
+    if (not this->np_frame) {
+        int rows = this->e_frame.frame.rows;
+        int cols = this->e_frame.frame.cols;
+        int channels = this->e_frame.frame.channels();
+        py::capsule free_when_done(this->e_frame.frame.data, [](void *f) { delete static_cast<cv::Mat *>(f); });
+        this->np_frame = py::array_t<uint8_t>({rows, cols, channels}, this->e_frame.frame.data, free_when_done);
+    }
+    return this->np_frame;
+};
+
+// Function wrappers
 
 py::tuple JaiZed::connect_cameras_wrapper(int fps, bool debug_mode) {
     acq_.debug = debug_mode;
-    acq_.batcher = BatchQueue();
+    acq_.jz_streamer = JaiZedStream();
     JaiZedStatus jzs = connect_cameras(acq_, fps);
     py::tuple tpl = py::make_tuple(jzs.jai_connected, jzs.zed_connected);
     acq_.is_connected = jzs.jai_connected and jzs.zed_connected;
@@ -22,24 +44,10 @@ void JaiZed::start_acquisition_wrapper(int fps, int exposure_rgb, int exposure_8
     start_acquisition(acq_);
 }
 
-py::tuple JaiZed::pop_wrapper(){
+EnumeratedJAIFrameWrapper JaiZed::pop_wrapper(){
     cout << "popping" << endl;
-    FramesBatch fb = acq_.batcher.pop();
-    py::tuple npFrames(BATCH_SIZE);
-    for (int i = 0; i < BATCH_SIZE; ++i) {
-        cv::Mat frame = fb.jai_frames[i];
-        // Create a numpy array with a capsule to the cv::Mat object's data
-        int rows = frame.rows;
-        int cols = frame.cols;
-        int channels = frame.channels();
-        py::capsule free_when_done(frame.data, [](void *f) { delete static_cast<cv::Mat*>(f); });
-        py::array_t<uint8_t> npFrame({ rows, cols, channels }, frame.data, free_when_done);
-
-        // Set the correct numpy array flags
-        npFrames[i] = npFrame;
-    }
-    cout << 99 << endl;
-    return npFrames;
+    EnumeratedJAIFrame jai_frame = acq_.jz_streamer.pop_jai();
+    EnumeratedJAIFrameWrapper e_frame(jai_frame);
 }
 
 void JaiZed::stop_acquisition_wrapper() {
@@ -56,11 +64,16 @@ void JaiZed::disconnect_cameras_wrapper() {
 AcquisitionParameters JaiZed::acq_;
 
 PYBIND11_MODULE(jaized, m) {
+    py::class_<EnumeratedJAIFrameWrapper>(m, "JaiFrame")
+        .def(py::init<EnumeratedJAIFrameWrapper>())
+        .def_property_readonly("frame", &EnumeratedJAIFrameWrapper::get_np_frame)
+        .def_property_readonly("frame_number", &EnumeratedJAIFrameWrapper::get_frame_number);
+
     py::class_<JaiZed>(m, "JaiZed")
-    .def(py::init<>())
-    .def("connect_cameras", &JaiZed::connect_cameras_wrapper)
-    .def("start_acquisition", &JaiZed::start_acquisition_wrapper)
-    .def("pop", &JaiZed::pop_wrapper)
-    .def("stop_acquisition", &JaiZed::stop_acquisition_wrapper)
-    .def("disconnect_cameras", &JaiZed::disconnect_cameras_wrapper);
+        .def(py::init<>())
+        .def("connect_cameras", &JaiZed::connect_cameras_wrapper)
+        .def("start_acquisition", &JaiZed::start_acquisition_wrapper)
+        .def("pop", &JaiZed::pop_wrapper)
+        .def("stop_acquisition", &JaiZed::stop_acquisition_wrapper)
+        .def("disconnect_cameras", &JaiZed::disconnect_cameras_wrapper);
 }

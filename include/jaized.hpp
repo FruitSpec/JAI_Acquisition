@@ -12,6 +12,32 @@
 
 namespace py = pybind11;
 
+class EnumeratedJAIFrameWrapper {
+
+public:
+    EnumeratedJAIFrameWrapper(EnumeratedJAIFrame e_frame);
+
+    int get_frame_number() const;
+
+    py::array_t<uint8_t> get_np_frame();
+
+private:
+    EnumeratedJAIFrame e_frame;
+    py::array_t<uint8_t> np_frame;
+};
+
+class EnumeratedZEDFrameWrapper {
+
+public:
+    EnumeratedZEDFrameWrapper();
+
+    py::array_t<uint8_t> get_np_frame();
+
+private:
+    EnumeratedJAIFrame e_frame;
+    py::array_t<uint8_t> np_frame;
+};
+
 class JaiZed {
 public:
 
@@ -21,7 +47,7 @@ public:
                                  bool output_fsi, bool output_rgb, bool output_800, bool output_975, bool output_svo,
                                  bool view, bool use_clahe_stretch, bool debug_mode);
 
-    py::tuple pop_wrapper();
+    EnumeratedJAIFrameWrapper pop_wrapper();
 
     void stop_acquisition_wrapper();
 
@@ -30,6 +56,8 @@ public:
 
 private:
     static AcquisitionParameters acq_;
+    static std::queue<py::array_t<uint8_t>> jai_frames;
+    static std::queue<py::array_t<uint8_t>> zed_frames;
 };
 
 #endif // JAIZED_HPP

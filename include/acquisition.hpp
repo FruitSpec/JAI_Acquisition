@@ -28,7 +28,7 @@
 #include <fstream>
 #include <mntent.h>
 #include <dirent.h>
-#include "batcher.hpp"
+#include "streamer.hpp"
 
 
 using namespace cv;
@@ -41,11 +41,6 @@ typedef list<PvBuffer *> BufferList;
 struct JaiZedStatus {
     bool jai_connected;
     bool zed_connected;
-};
-
-struct EnumeratedFrame {
-    cv::Mat frame;
-    int BlockID;
 };
 
 struct StreamInfo {
@@ -78,7 +73,7 @@ struct AcquisitionParameters {
     VideoWriter mp4_FSI, mp4_BGR, mp4_800, mp4_975;
     bool is_connected, is_running, debug;
     ofstream frame_drop_log_file;
-    BatchQueue batcher;
+    JaiZedStream jz_streamer;
 };
 
 bool SelectDeviceLocally(PvString *aConnectionID);

@@ -302,22 +302,17 @@ bool connect_ZED(AcquisitionParameters &acq, int fps){
 void ZedThread(AcquisitionParameters &acq) {
     // Grab ZED data and write to SVO file
 
-    std::array<sl::Mat, BATCH_SIZE> zed_frames;
-
     for (int zed_frame_number = 0; acq.is_running; zed_frame_number++) {
-        sl::Mat point_cloud;
+        EnumeratedZEDFrame zed_frame;
         ERROR_CODE err = acq.zed.grab();
         if (err != ERROR_CODE::SUCCESS) {
             if (acq.debug)
                 acq.frame_drop_log_file << "ZED FRAME DROP - FRAME NO. " << zed_frame_number << endl;
         }
         auto frame_loc = static_cast<short>(zed_frame_number % BATCH_SIZE);
-        acq.zed.retrieveMeasure(point_cloud, MEASURE::XYZRGBA);
-        zed_frames[frame_loc] = point_cloud;
-        if (zed_frame_number % BATCH_SIZE == 0 and zed_frame_number > 0){
-            auto batch_loc = static_cast<short>((zed_frame_number / BATCH_SIZE) % BUFFER_SIZE);
-            acq.batcher.push_zed(zed_frames, batch_loc);
-        }
+        acq.zed.retrieveMeasure(zed_frame.frame, MEASURE::XYZRGBA);
+        zed_frame.BlockID = zed_frame_number;
+        acq.jz_streamer.push_zed(zed_frame);
     }
 
     if (acq.video_conf->output_svo)
@@ -353,7 +348,7 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
                 height = lBuffer->GetImage()->GetHeight(), width = lBuffer->GetImage()->GetWidth();
                 cv::Mat frame(height, width, CV_8U, lBuffer->GetImage()->GetDataPointer());
                 lStream->QueueBuffer(lBuffer);
-                EnumeratedFrame *curr_frame = new EnumeratedFrame;
+                EnumeratedJAIFrame *curr_frame = new EnumeratedJAIFrame;
                 curr_frame->frame = frame;
                 curr_frame->BlockID = CurrentBlockID;
                 pthread_mutex_lock(&acq.grab_mtx);
@@ -447,13 +442,12 @@ void fsi_from_channels(cuda::GpuMat& blue, cuda::GpuMat& c_800, cuda::GpuMat& c_
 void MergeThread(AcquisitionParameters &acq) {
 
     cv::Mat Frames[3], res;
-    std::array<cv::Mat, BATCH_SIZE> jai_frames;
     cuda::GpuMat cudaFSI;
     std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3), cudaFrames_equalized(3), cudaFrames_normalized(3);
     std::vector<cv::Mat> images(3);
     int frame_count = 0;
     struct timespec max_wait = {0, 0};
-    EnumeratedFrame *e_frames[3] = {new EnumeratedFrame, new EnumeratedFrame, new EnumeratedFrame};
+    EnumeratedJAIFrame *e_frames[3] = {new EnumeratedJAIFrame, new EnumeratedJAIFrame, new EnumeratedJAIFrame};
     bool grabbed[3] = { false, false, false };
 
     if (acq.debug)
@@ -517,17 +511,11 @@ void MergeThread(AcquisitionParameters &acq) {
             cv::cuda::merge(cudaFrames_normalized, cudaFSI);
         }
 
-        int BlockID = e_frames[0]->BlockID;
-
-        auto frame_loc = static_cast<short>(BlockID % BATCH_SIZE);
-
         cudaFSI.download(res_fsi);
 
-        jai_frames[frame_loc] = res_fsi;
-        if (BlockID % BATCH_SIZE == 0 and BlockID != 0){
-            auto batch_loc = static_cast<short>((BlockID / BATCH_SIZE) % BUFFER_SIZE);
-            acq.batcher.push_jai(jai_frames, batch_loc);
-        }
+        int BlockID = e_frames[0]->BlockID;
+        EnumeratedJAIFrame e_frame_fsi = {res_fsi, BlockID};
+        acq.jz_streamer.push_jai(e_frame_fsi);
 
         frame_count++;
         if (frame_count % (acq.video_conf->FPS * 30) == 0 and acq.debug)
