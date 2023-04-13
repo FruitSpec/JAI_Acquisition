@@ -6,6 +6,7 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/cudacodec.hpp>
+#include <opencv2/cudacodec.hpp>
 #include <sys/stat.h>
 #include <PvSampleUtils.h>
 #include <PvDevice.h>
@@ -27,6 +28,8 @@
 #include <fstream>
 #include <mntent.h>
 #include <dirent.h>
+#include "batcher.hpp"
+
 
 using namespace cv;
 using namespace cuda;
@@ -40,16 +43,16 @@ struct JaiZedStatus {
     bool zed_connected;
 };
 
-typedef struct {
+struct EnumeratedFrame {
     cv::Mat frame;
     int BlockID;
-} EnumeratedFrame;
+};
 
-typedef struct {
-    PvStream *aStream;
-    int stream_index;
+struct StreamInfo {
+    PvStream *aStream{};
+    int stream_index{};
     queue<EnumeratedFrame *> Frames;
-} StreamInfo;
+};
 
 struct VideoConfig {
     short FPS = 15, exposure_rgb = 500, exposure_800 = 1000, exposure_975 = 3000;
@@ -75,6 +78,7 @@ struct AcquisitionParameters {
     VideoWriter mp4_FSI, mp4_BGR, mp4_800, mp4_975;
     bool is_connected, is_running, debug;
     ofstream frame_drop_log_file;
+    BatchQueue batcher;
 };
 
 bool SelectDeviceLocally(PvString *aConnectionID);

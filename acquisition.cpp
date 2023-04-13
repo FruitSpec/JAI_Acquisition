@@ -178,7 +178,6 @@ void set_acquisition_parameters(AcquisitionParameters &acq){
     lDeviceParams->GetIntegerValue("Height", acq.video_conf->height);
 }
 
-
 bool setup_JAI(AcquisitionParameters &acq) {
     PvString lConnectionID;
     bool test_streaming = true;
@@ -303,10 +302,22 @@ bool connect_ZED(AcquisitionParameters &acq, int fps){
 void ZedThread(AcquisitionParameters &acq) {
     // Grab ZED data and write to SVO file
 
-    for (int i = 1; acq.is_running; i++) {
+    std::array<sl::Mat, BATCH_SIZE> zed_frames;
+
+    for (int zed_frame_number = 0; acq.is_running; zed_frame_number++) {
+        sl::Mat point_cloud;
         ERROR_CODE err = acq.zed.grab();
-        if (err != ERROR_CODE::SUCCESS)
-            acq.frame_drop_log_file << "ZED FRAME DROP - FRAME NO. " << i << endl;
+        if (err != ERROR_CODE::SUCCESS) {
+            if (acq.debug)
+                acq.frame_drop_log_file << "ZED FRAME DROP - FRAME NO. " << zed_frame_number << endl;
+        }
+        auto frame_loc = static_cast<short>(zed_frame_number % BATCH_SIZE);
+        acq.zed.retrieveMeasure(point_cloud, MEASURE::XYZRGBA);
+        zed_frames[frame_loc] = point_cloud;
+        if (zed_frame_number % BATCH_SIZE == 0 and zed_frame_number > 0){
+            auto batch_loc = static_cast<short>((zed_frame_number / BATCH_SIZE) % BUFFER_SIZE);
+            acq.batcher.push_zed(zed_frames, batch_loc);
+        }
     }
 
     if (acq.video_conf->output_svo)
@@ -436,6 +447,7 @@ void fsi_from_channels(cuda::GpuMat& blue, cuda::GpuMat& c_800, cuda::GpuMat& c_
 void MergeThread(AcquisitionParameters &acq) {
 
     cv::Mat Frames[3], res;
+    std::array<cv::Mat, BATCH_SIZE> jai_frames;
     cuda::GpuMat cudaFSI;
     std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3), cudaFrames_equalized(3), cudaFrames_normalized(3);
     std::vector<cv::Mat> images(3);
@@ -448,7 +460,7 @@ void MergeThread(AcquisitionParameters &acq) {
         cout << "MERGE THREAD START" << endl;
     sleep(1);
     pthread_cond_broadcast(&acq.GrabEvent);
-    for (int frame_no = 1; acq.is_running; frame_no++) {
+    for (int frame_no = 0; acq.is_running; frame_no++) {
         for (int i = 0; i < 3; i++) {
             pthread_mutex_lock(&acq.grab_mtx);
             while (acq.MyStreamInfos[i]->Frames.empty() and !grabbed[i] and acq.is_running) {
@@ -480,7 +492,8 @@ void MergeThread(AcquisitionParameters &acq) {
             continue;
         }
         cv::Mat res_fsi, res_bgr;
-        // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV reffers to it as BayerBG - https://github.com/opencv/opencv/issues/19629
+        // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV refers to it as BayerBG
+        // for more info look at - https://github.com/opencv/opencv/issues/19629
 
         cudaFrames[0].upload(Frames[0]); // channel 0 = BayerBG8
         cudaFrames[2].upload(Frames[1]); // channel 1 = 800nm -> Red
@@ -504,7 +517,17 @@ void MergeThread(AcquisitionParameters &acq) {
             cv::cuda::merge(cudaFrames_normalized, cudaFSI);
         }
 
+        int BlockID = e_frames[0]->BlockID;
+
+        auto frame_loc = static_cast<short>(BlockID % BATCH_SIZE);
+
         cudaFSI.download(res_fsi);
+
+        jai_frames[frame_loc] = res_fsi;
+        if (BlockID % BATCH_SIZE == 0 and BlockID != 0){
+            auto batch_loc = static_cast<short>((BlockID / BATCH_SIZE) % BUFFER_SIZE);
+            acq.batcher.push_jai(jai_frames, batch_loc);
+        }
 
         frame_count++;
         if (frame_count % (acq.video_conf->FPS * 30) == 0 and acq.debug)
@@ -535,8 +558,8 @@ JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps){
     };
 
     if (acq.debug){
-        cout << (jzs.jai_connected ? "JAI connected" : "JAI NOT CONNECTED") << endl;
-        cout << (jzs.zed_connected ? "ZED connected" : "ZED NOT CONNECTED") << endl;
+        cout << (jzs.jai_connected ? "JAI CONNECTED" : "JAI NOT CONNECTED") << endl;
+        cout << (jzs.zed_connected ? "ZED CONNECTED" : "ZED NOT CONNECTED") << endl;
     }
 
     acq.is_connected = jzs.jai_connected and jzs.zed_connected;

@@ -6,6 +6,7 @@
 #include <pybind11/functional.h>
 #include <pybind11/operators.h>
 #include <pybind11/pytypes.h>
+#include <pybind11/numpy.h>
 #include "acquisition.hpp"
 #include <string>
 
@@ -20,9 +21,12 @@ public:
                                  bool output_fsi, bool output_rgb, bool output_800, bool output_975, bool output_svo,
                                  bool view, bool use_clahe_stretch, bool debug_mode);
 
+    py::tuple pop_wrapper();
+
     void stop_acquisition_wrapper();
 
     void disconnect_cameras_wrapper();
+
 
 private:
     static AcquisitionParameters acq_;
