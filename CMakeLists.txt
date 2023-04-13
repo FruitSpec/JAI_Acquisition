@@ -3,12 +3,13 @@ project (JAI_Acquisition)
 set(CMAKE_CXX_STANDARD 17)
 
 ADD_SUBDIRECTORY(pybind11)
-pybind11_add_module(jaized jaized.cpp acquisition.cpp)
+pybind11_add_module(jaized jaized.cpp acquisition.cpp batcher.cpp)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 add_definitions(-D_UNIX_=1)
 
-find_package( OpenCV REQUIRED )
+set(OpenCV_DIR /home/mic-730ai/miniconda3/envs/fsCounter/lib/cmake/opencv4)
+find_package(OpenCV REQUIRED)
 include_directories( ${OpenCV_INCLUDE_DIRS} )
 
 # FindeBus.cmake - Find eBus sdk, version >= 4.
