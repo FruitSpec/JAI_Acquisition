@@ -46,7 +46,7 @@ struct JaiZedStatus {
 struct StreamInfo {
     PvStream *aStream{};
     int stream_index{};
-    queue<EnumeratedFrame *> Frames;
+    queue<EnumeratedJAIFrame *> Frames;
 };
 
 struct VideoConfig {

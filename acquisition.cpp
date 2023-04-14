@@ -317,7 +317,6 @@ void ZedThread(AcquisitionParameters &acq) {
 
     if (acq.video_conf->output_svo)
         acq.zed.disableRecording();
-    acq.zed.close();
 }
 
 void GrabThread(int stream_index, AcquisitionParameters &acq) {
@@ -611,6 +610,9 @@ void stop_acquisition(AcquisitionParameters &acq) {
 }
 
 void disconnect_cameras(AcquisitionParameters &acq){
+    // disconnect ZED
+    acq.zed.close();
+
     // Abort all buffers from the streams and dequeue
     if (acq.debug)
         cout << "Aborting buffers still in streams" << endl << "closing streams" << endl;
