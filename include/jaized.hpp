@@ -41,9 +41,9 @@ private:
 class JaiZed {
 public:
 
-    py::tuple connect_cameras_wrapper(int fps, bool debug_mode);
+    py::tuple connect_cameras_wrapper(short fps, bool debug_mode);
 
-    void start_acquisition_wrapper(int fps, int exposure_rgb, int exposure_800, int exposure_975, const string& output_dir,
+    void start_acquisition_wrapper(short bit_depth, short fps, short exposure_rgb, short exposure_800, short exposure_975, const string& output_dir,
                                  bool output_fsi, bool output_rgb, bool output_800, bool output_975, bool output_svo,
                                  bool view, bool use_clahe_stretch, bool debug_mode);
 

@@ -25,7 +25,7 @@ py::array_t<uint8_t> EnumeratedJAIFrameWrapper::get_np_frame() {
 
 // Function wrappers
 
-py::tuple JaiZed::connect_cameras_wrapper(int fps, bool debug_mode) {
+py::tuple JaiZed::connect_cameras_wrapper(short fps, bool debug_mode) {
     acq_.debug = debug_mode;
     acq_.jz_streamer = JaiZedStream();
     JaiZedStatus jzs = connect_cameras(acq_, fps);
@@ -34,12 +34,12 @@ py::tuple JaiZed::connect_cameras_wrapper(int fps, bool debug_mode) {
     return tpl;
 }
 
-void JaiZed::start_acquisition_wrapper(int fps, int exposure_rgb, int exposure_800, int exposure_975,
+void JaiZed::start_acquisition_wrapper(short bit_depth, short fps, short exposure_rgb, short exposure_800, short exposure_975,
                                      const string& output_dir, bool output_fsi, bool output_rgb, bool output_800,
                                      bool output_975, bool output_svo, bool view, bool use_clahe_stretch,
                                      bool debug_mode) {
     cout << "starting" << endl;
-    acq_.video_conf = parse_args(fps, exposure_rgb, exposure_800, exposure_975, output_dir, output_fsi, output_rgb,
+    acq_.video_conf = parse_args(bit_depth, fps, exposure_rgb, exposure_800, exposure_975, output_dir, output_fsi, output_rgb,
                     output_800, output_975, output_svo, view, use_clahe_stretch, debug_mode);
     start_acquisition(acq_);
 }

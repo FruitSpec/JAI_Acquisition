@@ -125,13 +125,14 @@ void FreeStreamBuffers(BufferList *aBufferList) {
     aBufferList->clear();
 }
 
-VideoConfig * parse_args(int fps, int exposure_rgb = 500, int exposure_800 = 1000, int exposure_975 = 3000,
+VideoConfig * parse_args(short bit_depth, short fps, short exposure_rgb = 500, short exposure_800 = 1000, short exposure_975 = 3000,
                          const string & output_dir = string("/home/mic-730ai/Desktop/JAI_Results"), bool output_fsi = false,
                          bool output_rgb = false, bool output_800 = false, bool output_975 = false,
                          bool output_svo = false, bool view = false, bool use_clahe_stretch = false,
                          bool debug_mode = false){
     auto *video_conf = new VideoConfig;
 
+    video_conf->bit_depth = bit_depth;
     video_conf->FPS = fps;
     video_conf->exposure_rgb = exposure_rgb;
     video_conf->exposure_800 = exposure_800;
@@ -143,7 +144,11 @@ VideoConfig * parse_args(int fps, int exposure_rgb = 500, int exposure_800 = 100
     video_conf->output_975 = output_975;
     video_conf->output_svo = output_svo;
     video_conf->view = view;
-    video_conf->use_clahe_stretch = use_clahe_stretch;
+    if (bit_depth != 8)
+        video_conf->use_clahe_stretch = true;
+    else
+        video_conf->use_clahe_stretch = use_clahe_stretch;
+
 
     if (debug_mode) {
         std::cout << "FPS: " << video_conf->FPS << std::endl;
@@ -164,13 +169,22 @@ VideoConfig * parse_args(int fps, int exposure_rgb = 500, int exposure_800 = 100
 
 void set_acquisition_parameters(AcquisitionParameters &acq){
     PvGenParameterArray *lDeviceParams = acq.lDevice->GetParameters();
-    PvStream *lStreams[3] = {NULL, NULL, NULL};
+    PvStream *lStreams[3] = {nullptr, nullptr, nullptr};
+
+    PvString mono = "Mono8", bayer = "BayerRG8";
+    if (acq.video_conf->bit_depth == 8) {
+        mono = "Mono12";
+        bayer = "BayerRG12";
+    }
 
     lDeviceParams->SetEnumValue("SourceSelector", "Source0");
+    lDeviceParams->SetEnumValue("PixelFormat", bayer);
     lDeviceParams->SetFloatValue("ExposureAutoControlMax", acq.video_conf->exposure_rgb);
     lDeviceParams->SetEnumValue("SourceSelector", "Source1");
+    lDeviceParams->SetEnumValue("PixelFormat", mono);
     lDeviceParams->SetFloatValue("ExposureAutoControlMax", acq.video_conf->exposure_800);
     lDeviceParams->SetEnumValue("SourceSelector", "Source2");
+    lDeviceParams->SetEnumValue("PixelFormat", mono);
     lDeviceParams->SetFloatValue("ExposureAutoControlMax", acq.video_conf->exposure_975);
     lDeviceParams->SetEnumValue("SourceSelector", "Source0");
     lDeviceParams->SetFloatValue("AcquisitionFrameRate", acq.video_conf->FPS);
@@ -331,8 +345,9 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
     pthread_mutex_unlock(&(acq.acq_start_mtx));
     if (acq.debug)
         cout << "JAI STREAM " << stream_index << " STARTED" << endl;
+    short cv_bit_depth = acq.video_conf->bit_depth == 8 ? CV_8U : CV_16U;
     while (acq.is_running) {
-        PvBuffer *lBuffer = NULL;
+        PvBuffer *lBuffer = nullptr;
         lResult = lStream->RetrieveBuffer(&lBuffer, &lOperationResult, 1000);
 
         if (lResult.IsOK()) {
@@ -345,7 +360,7 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
                 }
                 PrevBlockID = CurrentBlockID;
                 height = lBuffer->GetImage()->GetHeight(), width = lBuffer->GetImage()->GetWidth();
-                cv::Mat frame(height, width, CV_8U, lBuffer->GetImage()->GetDataPointer());
+                cv::Mat frame(height, width, cv_bit_depth, lBuffer->GetImage()->GetDataPointer());
                 lStream->QueueBuffer(lBuffer);
                 EnumeratedJAIFrame *curr_frame = new EnumeratedJAIFrame;
                 curr_frame->frame = frame;
@@ -422,10 +437,8 @@ void stretch_and_clahe(cuda::GpuMat& channel, const Ptr<cuda::CLAHE>& clahe, dou
     clahe->apply(channel, channel);
 }
 
-void fsi_from_channels(cuda::GpuMat& blue, cuda::GpuMat& c_800, cuda::GpuMat& c_975, cuda::GpuMat &fsi,
+void fsi_from_channels(cv::Ptr<cuda::CLAHE> clahe, cuda::GpuMat& blue, cuda::GpuMat& c_800, cuda::GpuMat& c_975, cuda::GpuMat &fsi,
                        double lower = 0.02, double upper = 0.98, double min_int = 25, double max_int = 235) {
-    cv::Ptr<cuda::CLAHE> clahe = cv::cuda::createCLAHE(5, cv::Size(10, 10));
-
     stretch_and_clahe(blue, clahe, lower, upper, min_int, max_int);
     stretch_and_clahe(c_800, clahe, lower, upper, min_int, max_int);
     stretch_and_clahe(c_975, clahe, lower, upper, min_int, max_int);
@@ -442,7 +455,7 @@ void MergeThread(AcquisitionParameters &acq) {
 
     cv::Mat Frames[3], res;
     cuda::GpuMat cudaFSI;
-    std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3), cudaFrames_equalized(3), cudaFrames_normalized(3);
+    std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3);
     std::vector<cv::Mat> images(3);
     int frame_count = 0;
     struct timespec max_wait = {0, 0};
@@ -453,6 +466,7 @@ void MergeThread(AcquisitionParameters &acq) {
         cout << "MERGE THREAD START" << endl;
     sleep(1);
     pthread_cond_broadcast(&acq.GrabEvent);
+    cv::Ptr<cuda::CLAHE> clahe = cv::cuda::createCLAHE(5, cv::Size(10, 10));
     for (int frame_no = 0; acq.is_running; frame_no++) {
         for (int i = 0; i < 3; i++) {
             pthread_mutex_lock(&acq.grab_mtx);
@@ -500,14 +514,14 @@ void MergeThread(AcquisitionParameters &acq) {
         cudaFrames[0] = cudaBGR[2]; // just pick the blue from the bayer
 
         if (acq.video_conf->use_clahe_stretch){
-            fsi_from_channels(cudaFrames[0], cudaFrames[1], cudaFrames[2], cudaFSI);
+            fsi_from_channels(clahe, cudaFrames[0], cudaFrames[1], cudaFrames[2], cudaFSI);
         }
         else {
             for (int i = 0; i < 3; i++) {
-                cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
-                cv::cuda::normalize(cudaFrames_equalized[i], cudaFrames_normalized[i], 0, 255, cv::NORM_MINMAX, CV_8U);
+                cv::cuda::equalizeHist(cudaFrames[i], cudaFrames[i]);
+                cv::cuda::normalize(cudaFrames[i], cudaFrames[i], 0, 255, cv::NORM_MINMAX, CV_8U);
             }
-            cv::cuda::merge(cudaFrames_normalized, cudaFSI);
+            cv::cuda::merge(cudaFrames, cudaFSI);
         }
 
         cudaFSI.download(res_fsi);
@@ -521,7 +535,7 @@ void MergeThread(AcquisitionParameters &acq) {
             cout << endl << frame_count / (acq.video_conf->FPS * 60.0) << " minutes of video written" << endl << endl;
 
         if (acq.video_conf->output_fsi)
-            acq.mp4_FSI.write(res_fsi);
+            acq.mp4_FSI.write(cudaFSI);
         if (acq.video_conf->output_rgb)
             acq.mp4_BGR.write(res_bgr);
         if (acq.video_conf->output_800)

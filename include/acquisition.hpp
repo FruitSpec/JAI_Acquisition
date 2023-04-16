@@ -50,7 +50,8 @@ struct StreamInfo {
 };
 
 struct VideoConfig {
-    short FPS = 15, exposure_rgb = 500, exposure_800 = 1000, exposure_975 = 3000;
+    short bit_depth = 8;
+    short FPS = 15, exposure_rgb = 1000, exposure_800 = 2000, exposure_975 = 4000;
     short file_index = -1;
     int64_t width = 1536, height = 2048;
     bool output_fsi = false, output_rgb = false, output_800 = false, output_975 = false, output_svo = false;
@@ -88,7 +89,7 @@ void CreateStreamBuffers(PvDevice *&aDevice, PvStream *aStream, BufferList *aBuf
 
 void FreeStreamBuffers(BufferList *aBufferList);
 
-VideoConfig * parse_args(int fps, int exposure_rgb, int exposure_800, int exposure_975, const string& output_dir,
+VideoConfig * parse_args(short bit_depth, short fps, short exposure_rgb, short exposure_800, short exposure_975, const string& output_dir,
                          bool output_fsi, bool output_rgb, bool output_800, bool output_975, bool output_svo, bool view,
                          bool use_clahe_stretch, bool debug_mode);
 
