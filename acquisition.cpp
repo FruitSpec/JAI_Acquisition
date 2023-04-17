@@ -144,10 +144,7 @@ VideoConfig * parse_args(short bit_depth, short fps, short exposure_rgb = 500, s
     video_conf->output_975 = output_975;
     video_conf->output_svo = output_svo;
     video_conf->view = view;
-    if (bit_depth != 8)
-        video_conf->use_clahe_stretch = true;
-    else
-        video_conf->use_clahe_stretch = use_clahe_stretch;
+    video_conf->use_clahe_stretch = use_clahe_stretch;
 
 
     if (debug_mode) {
@@ -172,9 +169,8 @@ void set_acquisition_parameters(AcquisitionParameters &acq){
     PvStream *lStreams[3] = {nullptr, nullptr, nullptr};
 
     PvString mono = "Mono8", bayer = "BayerRG8";
-    if (acq.video_conf->bit_depth == 8) {
+    if (acq.video_conf->bit_depth == 12) {
         mono = "Mono12";
-        bayer = "BayerRG12";
     }
 
     lDeviceParams->SetEnumValue("SourceSelector", "Source0");
@@ -345,7 +341,11 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
     pthread_mutex_unlock(&(acq.acq_start_mtx));
     if (acq.debug)
         cout << "JAI STREAM " << stream_index << " STARTED" << endl;
-    short cv_bit_depth = acq.video_conf->bit_depth == 8 ? CV_8U : CV_16U;
+    short cv_bit_depth;
+    if (acq.video_conf->bit_depth == 8 or stream_index == 0)
+        cv_bit_depth = CV_8U;
+    else
+        cv_bit_depth = CV_16U;
     while (acq.is_running) {
         PvBuffer *lBuffer = nullptr;
         lResult = lStream->RetrieveBuffer(&lBuffer, &lOperationResult, 1000);
@@ -390,7 +390,7 @@ void stretch(cuda::GpuMat& channel, double lower = 0.02, double upper = 0.98, do
     int lower_threshold = 0, upper_threshold = 255;
     double percentile = 0.0;
 
-    cuda::normalize(channel, channel, 0, 255, NORM_MINMAX, CV_8U);
+//    cuda::normalize(channel, channel, 0, 255, NORM_MINMAX, CV_8U);
     cuda::GpuMat gpu_hist;
     cv::Mat cpu_hist;
 
@@ -498,7 +498,7 @@ void MergeThread(AcquisitionParameters &acq) {
             }
             continue;
         }
-        cv::Mat res_fsi, res_bgr;
+        cv::Mat res_fsi;
         // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV refers to it as BayerBG
         // for more info look at - https://github.com/opencv/opencv/issues/19629
 
@@ -507,19 +507,25 @@ void MergeThread(AcquisitionParameters &acq) {
         cudaFrames[1].upload(Frames[2]); // channel 2 = 975nm -> Green
 
         cv::cuda::demosaicing(cudaFrames[0], cudaFrames[0], cv::COLOR_BayerBG2BGR);
-        cv::cuda::split(cudaFrames[0], cudaBGR);
         if (acq.video_conf->output_rgb)
-            cudaFrames[0].download(res_bgr);
-
+            cudaFrames[0].download(Frames[0]);
+        cv::cuda::split(cudaFrames[0], cudaBGR);
         cudaFrames[0] = cudaBGR[2]; // just pick the blue from the bayer
+        for (int i = 0; i < 3; i++) {
+            cv::cuda::normalize(cudaFrames[i], cudaFrames[i], 0, 255, cv::NORM_MINMAX, CV_8U);
+        }
+        if (acq.video_conf->output_800)
+            cudaFrames[2].download(Frames[1]);
+        if (acq.video_conf->output_975)
+            cudaFrames[1].download(Frames[2]);
 
         if (acq.video_conf->use_clahe_stretch){
             fsi_from_channels(clahe, cudaFrames[0], cudaFrames[1], cudaFrames[2], cudaFSI);
         }
         else {
             for (int i = 0; i < 3; i++) {
+//                cv::cuda::normalize(cudaFrames[i], cudaFrames[i], 0, 255, cv::NORM_MINMAX, CV_8U);
                 cv::cuda::equalizeHist(cudaFrames[i], cudaFrames[i]);
-                cv::cuda::normalize(cudaFrames[i], cudaFrames[i], 0, 255, cv::NORM_MINMAX, CV_8U);
             }
             cv::cuda::merge(cudaFrames, cudaFSI);
         }
@@ -535,12 +541,13 @@ void MergeThread(AcquisitionParameters &acq) {
             cout << endl << frame_count / (acq.video_conf->FPS * 60.0) << " minutes of video written" << endl << endl;
 
         if (acq.video_conf->output_fsi)
-            acq.mp4_FSI.write(cudaFSI);
+            acq.mp4_FSI.write(res_fsi);
         if (acq.video_conf->output_rgb)
-            acq.mp4_BGR.write(res_bgr);
+            acq.mp4_BGR.write(Frames[0]);
         if (acq.video_conf->output_800)
             acq.mp4_800.write(Frames[1]);
         if (acq.video_conf->output_975)
+//            cudaFrames[2].download(Frames[2]);
             acq.mp4_975.write(Frames[2]);
     }
 }
