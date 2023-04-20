@@ -50,7 +50,6 @@ struct StreamInfo {
 };
 
 struct VideoConfig {
-    short bit_depth = 8;
     short FPS = 15, exposure_rgb = 1000, exposure_800 = 2000, exposure_975 = 4000;
     short file_index = -1;
     int64_t width = 1536, height = 2048;
@@ -73,7 +72,7 @@ struct AcquisitionParameters {
     pthread_mutex_t acq_start_mtx = PTHREAD_MUTEX_INITIALIZER;
     VideoWriter mp4_FSI, mp4_BGR, mp4_800, mp4_975;
     bool is_connected, is_running, debug;
-    ofstream frame_drop_log_file;
+    ofstream frame_drop_log_file, imu_log_file;
     JaiZedStream jz_streamer;
 };
 
@@ -89,7 +88,7 @@ void CreateStreamBuffers(PvDevice *&aDevice, PvStream *aStream, BufferList *aBuf
 
 void FreeStreamBuffers(BufferList *aBufferList);
 
-VideoConfig * parse_args(short bit_depth, short fps, short exposure_rgb, short exposure_800, short exposure_975, const string& output_dir,
+VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, short exposure_975, const string& output_dir,
                          bool output_fsi, bool output_rgb, bool output_800, bool output_975, bool output_svo, bool view,
                          bool use_clahe_stretch, bool debug_mode);
 
@@ -99,7 +98,7 @@ void MP4CreateFirstTime(AcquisitionParameters &acq);
 
 string gs_sink_builder(int file_index, const string& output_type_name, const string& output_dir);
 
-bool exists(char path[100]);
+bool exists(const string& path);
 
 bool connect_ZED(AcquisitionParameters &acq, int fps);
 
@@ -108,6 +107,8 @@ void GrabThread(int stream_index, AcquisitionParameters &acq);
 void ZedThread(AcquisitionParameters &acq);
 
 void MergeThread(AcquisitionParameters &acq);
+
+string get_current_time();
 
 JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps);
 

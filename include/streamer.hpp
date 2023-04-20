@@ -9,9 +9,6 @@
 #include <opencv2/cudacodec.hpp>
 #include <sl/Camera.hpp>
 
-#define BATCH_SIZE 4
-#define BUFFER_SIZE 15
-
 using namespace cv;
 using namespace std;
 
@@ -22,6 +19,7 @@ struct EnumeratedJAIFrame {
 
 struct EnumeratedZEDFrame {
     sl::Mat frame;
+    sl::SensorsData::IMUData imu;
     int BlockID;
 };
 
@@ -40,8 +38,8 @@ public:
     EnumeratedZEDFrame pop_zed();
 
 private:
-    pthread_mutex_t m_mutex{};
-    pthread_cond_t m_cv{};
+    pthread_mutex_t jai_mutex{}, zed_mutex{};
+    pthread_cond_t jai_cv{}, zed_cv{};
     std::queue<EnumeratedZEDFrame> zed_frames;
     std::queue<EnumeratedJAIFrame> jai_frames;
 };
