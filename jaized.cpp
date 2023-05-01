@@ -6,24 +6,37 @@
 
 EnumeratedJAIFrameWrapper::EnumeratedJAIFrameWrapper(EnumeratedJAIFrame e_frame){
     this->e_frame = std::move(e_frame);
-    this->retrieved_frame = false;
 }
 
 int EnumeratedJAIFrameWrapper::get_frame_number() const {
     return this->e_frame.BlockID;
 }
 
-py::array_t<uint8_t> EnumeratedJAIFrameWrapper::get_np_frame() {
-    if (not this->retrieved_frame) {
-        cout << "JAI 1" << endl;
-        this->retrieved_frame = true;
-        int rows = this->e_frame.frame.rows;
-        int cols = this->e_frame.frame.cols;
-        int channels = this->e_frame.frame.channels();
-        cout << "POP JAI PARAMS: " << rows << ", " << cols << ", " << channels << endl;
-        this->np_frame = py::array_t<uint8_t>({rows, cols, channels}, this->e_frame.frame.data);
+py::str EnumeratedJAIFrameWrapper::get_timestamp() const{
+    return this->e_frame.timestamp;
+}
+
+
+py::array_t<uint8_t> EnumeratedJAIFrameWrapper::get_fsi_np_frame() {
+    if (not this->retrieved_fsi) {
+        this->retrieved_fsi = true;
+        int rows = this->e_frame.fsi_frame.rows;
+        int cols = this->e_frame.fsi_frame.cols;
+        int channels = this->e_frame.fsi_frame.channels();
+        this->np_fsi_frame = py::array_t<uint8_t>({rows, cols, channels}, this->e_frame.fsi_frame.data);
     }
-    return this->np_frame;
+    return this->np_fsi_frame;
+}
+
+py::array_t<uint8_t> EnumeratedJAIFrameWrapper::get_rgb_np_frame() {
+    if (not this->retrieved_rgb) {
+        this->retrieved_rgb = true;
+        int rows = this->e_frame.rgb_frame.rows;
+        int cols = this->e_frame.rgb_frame.cols;
+        int channels = this->e_frame.rgb_frame.channels();
+        this->np_rgb_frame = py::array_t<uint8_t>({rows, cols, channels}, this->e_frame.rgb_frame.data);
+    }
+    return this->np_rgb_frame;
 }
 
 EnumeratedZEDFrameWrapper::EnumeratedZEDFrameWrapper(EnumeratedZEDFrame& e_frame){
@@ -34,16 +47,32 @@ int EnumeratedZEDFrameWrapper::get_frame_number() const {
     return this->e_frame.BlockID;
 }
 
-py::array_t<uint8_t> EnumeratedZEDFrameWrapper::get_np_frame(){
-    if (not this->retrieved_frame) {
-        this->retrieved_frame = true;
-        int rows = this->e_frame.frame.getHeight();
-        int cols = this->e_frame.frame.getWidth();
-        int channels = this->e_frame.frame.getChannels();
+py::str EnumeratedZEDFrameWrapper::get_timestamp() const {
+    return this->e_frame.timestamp;
+}
+
+py::array_t<uint8_t> EnumeratedZEDFrameWrapper::get_np_point_cloud(){
+    if (not this->retrieved_point_cloud) {
+        this->retrieved_point_cloud = true;
+        int rows = this->e_frame.point_cloud.getHeight();
+        int cols = this->e_frame.point_cloud.getWidth();
+        int channels = this->e_frame.point_cloud.getChannels();
         cout << "POP ZED PARAMS: " << rows << ", " << cols << ", " << channels << endl;
-        this->np_frame = py::array_t<uint8_t>({rows, cols, channels}, this->e_frame.frame.getPtr<uint8_t>());
+        this->np_point_cloud = py::array_t<uint8_t>({rows, cols, channels}, this->e_frame.point_cloud.getPtr<uint8_t>());
     }
-    return this->np_frame;
+    return this->np_point_cloud;
+}
+
+py::array_t<uint8_t> EnumeratedZEDFrameWrapper::get_np_rgb(){
+    if (not this->retrieved_rgb) {
+        this->retrieved_rgb = true;
+        int rows = this->e_frame.rgb.getHeight();
+        int cols = this->e_frame.rgb.getWidth();
+        int channels = this->e_frame.rgb.getChannels();
+        cout << "POP ZED PARAMS: " << rows << ", " << cols << ", " << channels << endl;
+        this->np_rgb = py::array_t<uint8_t>({rows, cols, channels}, this->e_frame.rgb.getPtr<uint8_t>());
+    }
+    return this->np_rgb;
 }
 
 IMUData EnumeratedZEDFrameWrapper::get_imu_data() {
@@ -63,12 +92,13 @@ py::tuple JaiZed::connect_cameras_wrapper(short fps, bool debug_mode) {
 }
 
 void JaiZed::start_acquisition_wrapper(short fps, short exposure_rgb, short exposure_800, short exposure_975,
-                                     const string& output_dir, bool output_fsi, bool output_rgb, bool output_800,
-                                     bool output_975, bool output_svo, bool view, bool use_clahe_stretch,
-                                     bool debug_mode) {
+                                       const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
+                                       bool output_rgb, bool output_800, bool output_975, bool output_svo, bool view,
+                                       bool pass_clahe_stream, bool debug_mode) {
     cout << "starting" << endl;
-    acq_.video_conf = parse_args(fps, exposure_rgb, exposure_800, exposure_975, output_dir, output_fsi, output_rgb,
-                    output_800, output_975, output_svo, view, use_clahe_stretch, debug_mode);
+    acq_.video_conf = parse_args(fps, exposure_rgb, exposure_800, exposure_975,
+                                 output_dir, output_clahe_fsi, output_equalize_hist_fsi, output_rgb,
+                                 output_800, output_975, output_svo, view, pass_clahe_stream, debug_mode);
     start_acquisition(acq_);
 }
 
@@ -101,19 +131,29 @@ PYBIND11_MODULE(jaized, m) {
 
     py::class_<EnumeratedJAIFrameWrapper>(m, "JaiFrame")
         .def(py::init<EnumeratedJAIFrameWrapper>())
-        .def_property_readonly("frame", &EnumeratedJAIFrameWrapper::get_np_frame)
+            .def_property_readonly("timestamp", &EnumeratedJAIFrameWrapper::get_timestamp)
+        .def_property_readonly("fsi", &EnumeratedJAIFrameWrapper::get_fsi_np_frame)
+        .def_property_readonly("rgb", &EnumeratedJAIFrameWrapper::get_rgb_np_frame)
         .def_property_readonly("frame_number", &EnumeratedJAIFrameWrapper::get_frame_number);
 
     py::class_<EnumeratedZEDFrameWrapper>(m, "ZedFrame")
-        .def(py::init<EnumeratedZEDFrameWrapper>())
-        .def_property_readonly("frame", &EnumeratedZEDFrameWrapper::get_np_frame)
-        .def_property_readonly("imu", &EnumeratedZEDFrameWrapper::get_imu_data)
-        .def_property_readonly("frame_number", &EnumeratedZEDFrameWrapper::get_frame_number);
+            .def(py::init<EnumeratedZEDFrameWrapper>())
+            .def_property_readonly("timestamp", &EnumeratedZEDFrameWrapper::get_timestamp)
+            .def_property_readonly("rgb", &EnumeratedZEDFrameWrapper::get_np_rgb)
+            .def_property_readonly("point_cloud", &EnumeratedZEDFrameWrapper::get_np_point_cloud)
+            .def_property_readonly("imu", &EnumeratedZEDFrameWrapper::get_imu_data)
+            .def_property_readonly("frame_number", &EnumeratedZEDFrameWrapper::get_frame_number);
 
     py::class_<IMUData>(m, "IMUData")
         .def(py::init<IMUData>())
         .def_readonly("angular_velocity", &IMUData::angular_velocity)
         .def_readonly("linear_acceleration", &IMUData::linear_acceleration);
+
+    py::class_<sl::float3>(m, "xyzVector")
+            .def(py::init<sl::float3>())
+            .def_readonly("x", &sl::float3::x)
+            .def_readonly("y", &sl::float3::y)
+            .def_readonly("z", &sl::float3::z);
 
     py::class_<JaiZed>(m, "JaiZed")
         .def(py::init<>())

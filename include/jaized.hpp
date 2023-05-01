@@ -20,12 +20,16 @@ public:
 
     int get_frame_number() const;
 
-    py::array_t<uint8_t> get_np_frame();
+    py::str get_timestamp() const;
+
+    py::array_t<uint8_t> get_fsi_np_frame();
+
+    py::array_t<uint8_t> get_rgb_np_frame();
 
 private:
     EnumeratedJAIFrame e_frame;
-    py::array_t<uint8_t> np_frame;
-    bool retrieved_frame;
+    py::array_t<uint8_t> np_fsi_frame, np_rgb_frame;
+    bool retrieved_fsi, retrieved_rgb;
 };
 
 class EnumeratedZEDFrameWrapper {
@@ -35,14 +39,18 @@ public:
 
     int get_frame_number() const;
 
-    py::array_t<uint8_t> get_np_frame();
+    py::str get_timestamp() const;
+
+    py::array_t<uint8_t> get_np_point_cloud();
+
+    py::array_t<uint8_t> get_np_rgb();
 
     SensorsData::IMUData get_imu_data();
 
 private:
     EnumeratedZEDFrame e_frame;
-    py::array_t<uint8_t> np_frame;
-    bool retrieved_frame;
+    py::array_t<uint8_t> np_point_cloud, np_rgb;
+    bool retrieved_point_cloud{}, retrieved_rgb{};
 };
 
 class JaiZed {
@@ -50,9 +58,10 @@ public:
 
     py::tuple connect_cameras_wrapper(short fps, bool debug_mode);
 
-    void start_acquisition_wrapper(short fps, short exposure_rgb, short exposure_800, short exposure_975, const string& output_dir,
-                                 bool output_fsi, bool output_rgb, bool output_800, bool output_975, bool output_svo,
-                                 bool view, bool use_clahe_stretch, bool debug_mode);
+    void start_acquisition_wrapper(short fps, short exposure_rgb, short exposure_800, short exposure_975,
+                                   const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
+                                   bool output_rgb, bool output_800, bool output_975, bool output_svo, bool view,
+                                   bool pass_clahe_stream, bool debug_mode);
 
     EnumeratedJAIFrameWrapper pop_jai_wrapper();
 

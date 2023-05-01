@@ -12,13 +12,21 @@
 using namespace cv;
 using namespace std;
 
-struct EnumeratedJAIFrame {
+struct SingleJAIChannel {
+    string timestamp;
     cv::Mat frame;
     int BlockID;
 };
 
+struct EnumeratedJAIFrame {
+    string timestamp;
+    cv::Mat fsi_frame, rgb_frame;
+    int BlockID;
+};
+
 struct EnumeratedZEDFrame {
-    sl::Mat frame;
+    string timestamp;
+    sl::Mat point_cloud, rgb;
     sl::SensorsData::IMUData imu;
     int BlockID;
 };

@@ -119,11 +119,10 @@ void FreeStreamBuffers(BufferList *aBufferList) {
     aBufferList->clear();
 }
 
-VideoConfig * parse_args(short fps, short exposure_rgb = 500, short exposure_800 = 1000, short exposure_975 = 3000,
-                         const string & output_dir = string("/home/mic-730ai/Desktop/JAI_Results"), bool output_fsi = false,
-                         bool output_rgb = false, bool output_800 = false, bool output_975 = false,
-                         bool output_svo = false, bool view = false, bool use_clahe_stretch = false,
-                         bool debug_mode = false){
+VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, short exposure_975,
+                         const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
+                         bool output_rgb, bool output_800, bool output_975, bool output_svo, bool view,
+                         bool pass_clahe_stream, bool debug_mode) {
     auto *video_conf = new VideoConfig;
 
     video_conf->FPS = fps;
@@ -131,13 +130,14 @@ VideoConfig * parse_args(short fps, short exposure_rgb = 500, short exposure_800
     video_conf->exposure_800 = exposure_800;
     video_conf->exposure_975 = exposure_975;
     video_conf->output_dir = output_dir;
-    video_conf->output_fsi = output_fsi;
+    video_conf->output_clahe_fsi = output_clahe_fsi;
+    video_conf->output_equalize_hist_fsi = output_equalize_hist_fsi;
     video_conf->output_rgb = output_rgb;
     video_conf->output_800 = output_800;
     video_conf->output_975 = output_975;
     video_conf->output_svo = output_svo;
     video_conf->view = view;
-    video_conf->use_clahe_stretch = use_clahe_stretch;
+    video_conf->pass_clahe_stream = pass_clahe_stream;
 
 
     if (debug_mode) {
@@ -146,7 +146,8 @@ VideoConfig * parse_args(short fps, short exposure_rgb = 500, short exposure_800
             std::cout << "view mode: on" << std::endl;
         else {
             std::cout << "view mode: off" << std::endl;
-            std::cout << "output-fsi: " << std::boolalpha << video_conf->output_fsi << std::endl;
+            std::cout << "output-clahe-fsi: " << std::boolalpha << video_conf->output_clahe_fsi << std::endl;
+            std::cout << "output-equalize-hist-fsi: " << std::boolalpha << video_conf->output_equalize_hist_fsi << std::endl;
             std::cout << "output-rgb: " << std::boolalpha << video_conf->output_rgb << std::endl;
             std::cout << "output-800: " << std::boolalpha << video_conf->output_800 << std::endl;
             std::cout << "output-975: " << std::boolalpha << video_conf->output_975 << std::endl;
@@ -157,20 +158,41 @@ VideoConfig * parse_args(short fps, short exposure_rgb = 500, short exposure_800
     return video_conf;
 }
 
-void set_acquisition_parameters(AcquisitionParameters &acq){
+void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvString& source, int auto_exposure_max){
+    const PvString alc_true_areas[4] = {"HighMidLeft", "LowMidLeft", "MidHighMidLeft", "MidLowMidLeft"};
+    const PvString alc_false_areas[12] = {"HighRight", "HighMidRight", "HighLeft",
+                                         "MidHighRight", "MidHighMidRight", "MidHighLeft",
+                                         "MidLowRight", "MidLowMidRight", "MidLowLeft",
+                                         "LowRight", "LowMidRight", "LowLeft"
+    };
+
+    lDeviceParams->SetEnumValue("SourceSelector", source);
+
+    lDeviceParams->SetEnumValue("ExposureAuto", "Continuous");
+    lDeviceParams->SetFloatValue("ExposureAutoControlMax", auto_exposure_max);
+    lDeviceParams->SetBooleanValue("ALCAreaEnableAll", false);
+
+    for (const PvString& alc_true_area : alc_true_areas) {
+        lDeviceParams->SetEnumValue("ALCAreaSelector", alc_true_area);
+        lDeviceParams->SetBooleanValue("ALCAreaEnable", true);
+    }
+
+    for (const PvString& alc_false_area : alc_false_areas) {
+        lDeviceParams->SetEnumValue("ALCAreaSelector", alc_false_area);
+        lDeviceParams->SetBooleanValue("ALCAreaEnable", false);
+    }
+}
+
+void set_acquisition_parameters(AcquisitionParameters &acq) {
     PvGenParameterArray *lDeviceParams = acq.lDevice->GetParameters();
     PvStream *lStreams[3] = {nullptr, nullptr, nullptr};
+    const PvString source_0 = "Source0", source_1 = "Source1", source_2 = "Source2";
 
-    lDeviceParams->SetEnumValue("SourceSelector", "Source0");
+    set_parameters_per_source(lDeviceParams, source_0, acq.video_conf->exposure_rgb);
+    set_parameters_per_source(lDeviceParams, source_1, acq.video_conf->exposure_800);
+    set_parameters_per_source(lDeviceParams, source_2, acq.video_conf->exposure_975);
+
     lDeviceParams->SetFloatValue("AcquisitionFrameRate", acq.video_conf->FPS);
-    lDeviceParams->SetEnumValue("PixelFormat", "BayerRG8");
-    lDeviceParams->SetFloatValue("ExposureAutoControlMax", acq.video_conf->exposure_rgb);
-    lDeviceParams->SetEnumValue("SourceSelector", "Source1");
-    lDeviceParams->SetEnumValue("PixelFormat", "Mono12");
-    lDeviceParams->SetFloatValue("ExposureAutoControlMax", acq.video_conf->exposure_800);
-    lDeviceParams->SetEnumValue("SourceSelector", "Source2");
-    lDeviceParams->SetEnumValue("PixelFormat", "Mono12");
-    lDeviceParams->SetFloatValue("ExposureAutoControlMax", acq.video_conf->exposure_975);
     lDeviceParams->GetIntegerValue("Width", acq.video_conf->width);
     lDeviceParams->GetIntegerValue("Height", acq.video_conf->height);
 }
@@ -207,17 +229,95 @@ bool setup_JAI(AcquisitionParameters &acq) {
         return false;
 }
 
+void MP4CreateFirstTime_old(AcquisitionParameters &acq){
+    bool is_exist = false;
+    short i = 0;
+    char stat_FSI[100], stat_RGB[100], stat_800[100], stat_975[100], stat_SVO[100];
+    string f_fsi_clahe, f_fsi_equalize_hist, f_rgb, f_800, f_975;
+    char zed_filename[100];
+    string width_s, height_s, FPS_s;
+
+    if (not(acq.video_conf->output_clahe_fsi or acq.video_conf->output_equalize_hist_fsi or acq.video_conf->output_rgb or acq.video_conf->output_800 or acq.video_conf->output_975)) {
+        acq.video_conf->file_index = - 1;
+        return;
+    }
+
+    width_s = to_string(acq.video_conf->width);
+    height_s = to_string(acq.video_conf->height);
+    FPS_s = to_string(acq.video_conf->FPS);
+
+    do {
+        sprintf(stat_FSI, (acq.video_conf->output_dir + string("/FSI_%d.mkv")).c_str(), ++i);
+        sprintf(stat_RGB, (acq.video_conf->output_dir + string("/RGB_%d.mkv")).c_str(), i);
+        sprintf(stat_800, (acq.video_conf->output_dir + string("/800_%d.mkv")).c_str(), i);
+        sprintf(stat_975, (acq.video_conf->output_dir + string("/975_%d.mkv")).c_str(), i);
+        sprintf(stat_SVO, (acq.video_conf->output_dir + string("/ZED_%d.mkv")).c_str(), i);
+        is_exist = exists(stat_FSI) || exists(stat_RGB) ||
+                exists(stat_800) || exists(stat_975) || exists(stat_SVO);
+    } while (is_exist);
+
+    acq.video_conf->file_index = i;
+    string file_index_s = to_string(i);
+
+    string frame_drop_log_path = acq.video_conf->output_dir + "/frame_drop_" + file_index_s + ".log";
+    string imu_log_path = acq.video_conf->output_dir + "/imu_" + file_index_s + ".log";
+
+    acq.frame_drop_log_file.open(frame_drop_log_path, ios_base::app);
+    acq.imu_log_file.open(imu_log_path, ios_base::app);
+
+    string gst_3c = string("appsrc ! video/x-raw, format=BGR, width=(int)") + width_s +
+            string(", height=(int)") + height_s + string(", framerate=(fraction)") + FPS_s +
+            string("/1 ! queue ! videoconvert ! video/x-raw,format=BGRx ! nvvidconv !") +
+            string("nvv4l2h265enc bitrate=15000000 ! h265parse ! matroskamux ! filesink location=");
+
+    string gst_1c = string("appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=");
+
+    cv::Size frame_size(acq.video_conf->width, acq.video_conf->height);
+    int four_c = VideoWriter::fourcc('H', '2', '6', '5');
+    if (acq.video_conf->output_clahe_fsi) {
+        f_fsi_clahe = gs_sink_builder(acq.video_conf->file_index, "FSI_CLAHE", acq.video_conf->output_dir);
+        string gs_clahe_fsi = gst_3c + f_fsi_clahe;
+        acq.mp4_clahe_FSI.open(gs_clahe_fsi, four_c, acq.video_conf->FPS, frame_size);
+    }
+    if (acq.video_conf->output_equalize_hist_fsi) {
+        f_fsi_equalize_hist = gs_sink_builder(acq.video_conf->file_index, "FSI_EQUALIZE_HIST", acq.video_conf->output_dir);
+        string gs_equalize_hist_fsi = gst_3c + f_fsi_equalize_hist;
+        acq.mp4_equalize_hist_FSI.open(gs_equalize_hist_fsi, four_c, acq.video_conf->FPS, frame_size);
+    }
+    if (acq.video_conf->output_rgb) {
+        f_rgb = gs_sink_builder(acq.video_conf->file_index, "RGB", acq.video_conf->output_dir);
+        string gs_rgb = gst_3c + f_rgb;
+        acq.mp4_BGR.open(gs_rgb, four_c, acq.video_conf->FPS, frame_size);
+    }
+    if (acq.video_conf->output_800) {;
+        f_800 = gs_sink_builder(acq.video_conf->file_index, "800", acq.video_conf->output_dir);
+        string gs_800 = gst_1c + f_800;
+        acq.mp4_800.open(gs_800, four_c, acq.video_conf->FPS, frame_size, false);
+    }
+    if (acq.video_conf->output_975) {
+        f_975 = gs_sink_builder(acq.video_conf->file_index, "975", acq.video_conf->output_dir);
+        string gs_975 = gst_1c + f_975;
+        acq.mp4_975.open(gs_975, four_c, acq.video_conf->FPS, frame_size, false);
+    }
+    if (acq.video_conf->output_svo) {
+        sprintf(zed_filename, (acq.video_conf->output_dir + string("/ZED_%d.svo")).c_str(), acq.video_conf->file_index);
+        RecordingParameters params(zed_filename, SVO_COMPRESSION_MODE::H265);
+        acq.zed.enableRecording(params);
+    }
+}
+
 void MP4CreateFirstTime(AcquisitionParameters &acq){
     bool is_exist = false;
     short file_index = 0;
     string stat_fsi, stat_rgb, stat_800, stat_975, stat_SVO;
-    string f_fsi, f_rgb, f_800, f_975;
+    string f_fsi_clahe, f_fsi_equalize_hist, f_rgb, f_800, f_975;
     string width_s, height_s, FPS_s, file_index_s;
     string frame_drop_log_path, imu_log_path;
+    char zed_filename[100];
 
     acq.video_conf->file_index = - 1;
-    if (acq.video_conf->output_fsi or acq.video_conf->output_rgb or acq.video_conf->output_800 or acq.video_conf->output_975 or acq.video_conf->output_svo) {
-
+    if (acq.video_conf->output_clahe_fsi or acq.video_conf->output_equalize_hist_fsi or acq.video_conf->output_rgb or acq.video_conf->output_800 or acq.video_conf->output_975)
+    {
         width_s = to_string(acq.video_conf->width);
         height_s = to_string(acq.video_conf->height);
         FPS_s = to_string(acq.video_conf->FPS);
@@ -238,6 +338,9 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
         frame_drop_log_path = acq.video_conf->output_dir + "/frame_drop_" + file_index_s + ".log";
         imu_log_path = acq.video_conf->output_dir + "/imu_" + file_index_s + ".log";
 
+        acq.frame_drop_log_file.open(frame_drop_log_path, ios_base::app);
+        acq.imu_log_file.open(imu_log_path, ios_base::app);
+
         string gst_3c = "appsrc ! video/x-raw, format=BGR, width=(int)" + width_s + ", height=(int)" + height_s;
         gst_3c += ", framerate=(fraction)" + FPS_s + "/1 ! queue ! videoconvert ! video/x-raw,format=BGRx ! nvvidconv !";
         gst_3c += "nvv4l2h265enc bitrate=15000000 ! h265parse ! matroskamux ! filesink location=";
@@ -246,10 +349,15 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
 
         cv::Size frame_size(acq.video_conf->width, acq.video_conf->height);
         int four_c = VideoWriter::fourcc('H', '2', '6', '5');
-        if (acq.video_conf->output_fsi) {
-            f_fsi = gs_sink_builder(acq.video_conf->file_index, "FSI", acq.video_conf->output_dir);
-            string gs_fsi = gst_3c + f_fsi;
-            acq.mp4_FSI.open(gs_fsi, four_c, acq.video_conf->FPS, frame_size);
+        if (acq.video_conf->output_clahe_fsi) {
+            f_fsi_clahe = gs_sink_builder(acq.video_conf->file_index, "FSI_CLAHE", acq.video_conf->output_dir);
+            string gs_clahe_fsi = gst_3c + f_fsi_clahe;
+            acq.mp4_clahe_FSI.open(gs_clahe_fsi, four_c, acq.video_conf->FPS, frame_size);
+        }
+        if (acq.video_conf->output_equalize_hist_fsi) {
+            f_fsi_equalize_hist = gs_sink_builder(acq.video_conf->file_index, "FSI_EQUALIZE_HIST", acq.video_conf->output_dir);
+            string gs_equalize_hist_fsi = gst_3c + f_fsi_equalize_hist;
+            acq.mp4_equalize_hist_FSI.open(gs_equalize_hist_fsi, four_c, acq.video_conf->FPS, frame_size);
         }
         if (acq.video_conf->output_rgb) {
             f_rgb = gs_sink_builder(acq.video_conf->file_index, "RGB", acq.video_conf->output_dir);
@@ -267,7 +375,8 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
             acq.mp4_975.open(gs_975, four_c, acq.video_conf->FPS, frame_size, false);
         }
         if (acq.video_conf->output_svo) {
-            RecordingParameters params(stat_SVO.c_str(), SVO_COMPRESSION_MODE::H265);
+            sprintf(zed_filename, (acq.video_conf->output_dir + string("/ZED_%d.svo")).c_str(), acq.video_conf->file_index);
+            RecordingParameters params(zed_filename, SVO_COMPRESSION_MODE::H265);
             acq.zed.enableRecording(params);
         }
     }
@@ -299,12 +408,14 @@ void ZedThread(AcquisitionParameters &acq) {
         EnumeratedZEDFrame zed_frame;
         sl::SensorsData sensors_data;
         ERROR_CODE err = acq.zed.grab();
+        zed_frame.timestamp = get_current_time();
         if (err != ERROR_CODE::SUCCESS) {
             if (acq.debug)
                 acq.frame_drop_log_file << "ZED FRAME DROP - FRAME NO. " << zed_frame_number << endl;
         }
+        acq.zed.retrieveImage(zed_frame.rgb, VIEW::LEFT);
         acq.zed.getSensorsData(sensors_data, TIME_REFERENCE::IMAGE);
-        acq.zed.retrieveMeasure(zed_frame.frame, MEASURE::XYZRGBA);
+        acq.zed.retrieveMeasure(zed_frame.point_cloud, MEASURE::XYZ);
         zed_frame.BlockID = zed_frame_number;
         zed_frame.imu = sensors_data.imu;
         std::stringstream imu;
@@ -332,8 +443,9 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
     short cv_bit_depth = stream_index == 0 ? CV_8U : CV_16U;
     while (acq.is_running) {
         PvBuffer *lBuffer = nullptr;
+        auto *curr_frame = new SingleJAIChannel;
         lResult = lStream->RetrieveBuffer(&lBuffer, &lOperationResult, 1000);
-
+        curr_frame->timestamp = get_current_time();
         if (lResult.IsOK()) {
             if (lOperationResult.IsOK()) {
                 // We now have a valid buffer. This is where you would typically process the buffer.
@@ -344,10 +456,8 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
                 }
                 PrevBlockID = CurrentBlockID;
                 height = lBuffer->GetImage()->GetHeight(), width = lBuffer->GetImage()->GetWidth();
-                cv::Mat frame(height, width, cv_bit_depth, lBuffer->GetImage()->GetDataPointer());
                 lStream->QueueBuffer(lBuffer);
-                auto *curr_frame = new EnumeratedJAIFrame;
-                curr_frame->frame = frame;
+                curr_frame->frame = cv::Mat(height, width, cv_bit_depth, lBuffer->GetImage()->GetDataPointer());
                 curr_frame->BlockID = CurrentBlockID;
                 pthread_mutex_lock(&acq.grab_mtx);
                 MyStreamInfo->Frames.push(curr_frame);
@@ -422,7 +532,7 @@ void stretch_and_clahe(cuda::GpuMat& channel, const Ptr<cuda::CLAHE>& clahe, dou
 
 void fsi_from_channels(cv::Ptr<cuda::CLAHE> clahe, cuda::GpuMat& blue, cuda::GpuMat& c_800, cuda::GpuMat& c_975, cuda::GpuMat &fsi,
                        double lower = 0.005, double upper = 0.995, double min_int = 25, double max_int = 235) {
-    stretch_and_clahe(blue, clahe, lower, upper, min_int, max_int);
+//    stretch_and_clahe(blue, clahe, lower, upper, min_int, max_int);
     stretch_and_clahe(c_800, clahe, lower, upper, min_int, max_int);
     stretch_and_clahe(c_975, clahe, lower, upper, min_int, max_int);
 
@@ -437,12 +547,12 @@ void fsi_from_channels(cv::Ptr<cuda::CLAHE> clahe, cuda::GpuMat& blue, cuda::Gpu
 void MergeThread(AcquisitionParameters &acq) {
 
     cv::Mat Frames[3], res;
-    cuda::GpuMat cudaFSI;
-    std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3);
+    cuda::GpuMat cudaFSI_clahe, cudaFSI_equalized_hist;
+    std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3), cudaFrames_equalized(3);
     std::vector<cv::Mat> images(3);
     int frame_count = 0;
     struct timespec max_wait = {0, 0};
-    EnumeratedJAIFrame *e_frames[3] = {new EnumeratedJAIFrame, new EnumeratedJAIFrame, new EnumeratedJAIFrame};
+    SingleJAIChannel *e_frames[3] = {new SingleJAIChannel, new SingleJAIChannel, new SingleJAIChannel};
     bool grabbed[3] = { false, false, false };
 
     if (acq.debug)
@@ -481,7 +591,7 @@ void MergeThread(AcquisitionParameters &acq) {
             }
             continue;
         }
-        cv::Mat res_fsi;
+        cv::Mat res_clahe_fsi, res_equalize_hist_fsi;
         // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV refers to it as BayerBG
         // for more info look at - https://github.com/opencv/opencv/issues/19629
 
@@ -502,29 +612,36 @@ void MergeThread(AcquisitionParameters &acq) {
         if (acq.video_conf->output_975)
             cudaFrames[1].download(Frames[2]);
 
-        if (acq.video_conf->use_clahe_stretch){
-            fsi_from_channels(clahe, cudaFrames[0], cudaFrames[1], cudaFrames[2], cudaFSI);
-        }
-        else {
+        if (acq.video_conf->output_equalize_hist_fsi or (not acq.video_conf->pass_clahe_stream)) {
             for (int i = 0; i < 3; i++) {
-//                cv::cuda::normalize(cudaFrames[i], cudaFrames[i], 0, 255, cv::NORM_MINMAX, CV_8U);
-                cv::cuda::equalizeHist(cudaFrames[i], cudaFrames[i]);
+                cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
             }
-            cv::cuda::merge(cudaFrames, cudaFSI);
+            cv::cuda::merge(cudaFrames_equalized, cudaFSI_equalized_hist);
+            cudaFSI_equalized_hist.download(res_equalize_hist_fsi);
+        }
+        if (acq.video_conf->output_clahe_fsi or acq.video_conf->pass_clahe_stream) {
+            fsi_from_channels(clahe, cudaFrames[0], cudaFrames[1], cudaFrames[2], cudaFSI_clahe);
+            cudaFSI_clahe.download(res_clahe_fsi);
         }
 
-        cudaFSI.download(res_fsi);
-
+        string timestamp = e_frames[0]->timestamp;
         int BlockID = e_frames[0]->BlockID;
-        EnumeratedJAIFrame e_frame_fsi = {res_fsi, BlockID};
+        EnumeratedJAIFrame e_frame_fsi;
+        if (acq.video_conf->output_clahe_fsi)
+            e_frame_fsi = {timestamp, res_clahe_fsi, Frames[0], BlockID};
+        else
+            e_frame_fsi = {timestamp, res_equalize_hist_fsi, Frames[0], BlockID};
+
         acq.jz_streamer.push_jai(e_frame_fsi);
 
         frame_count++;
         if (frame_count % (acq.video_conf->FPS * 30) == 0 and acq.debug)
             cout << endl << frame_count / (acq.video_conf->FPS * 60.0) << " minutes of video written" << endl << endl;
 
-        if (acq.video_conf->output_fsi)
-            acq.mp4_FSI.write(res_fsi);
+        if (acq.video_conf->output_clahe_fsi)
+            acq.mp4_clahe_FSI.write(res_clahe_fsi);
+        if (acq.video_conf->output_equalize_hist_fsi)
+            acq.mp4_equalize_hist_FSI.write(res_equalize_hist_fsi);
         if (acq.video_conf->output_rgb)
             acq.mp4_BGR.write(Frames[0]);
         if (acq.video_conf->output_800)
@@ -609,8 +726,10 @@ void stop_acquisition(AcquisitionParameters &acq) {
     acq.frame_drop_log_file.close();
     acq.imu_log_file.close();
 
-    if (acq.video_conf->output_fsi)
-        acq.mp4_FSI.release();
+    if (acq.video_conf->output_clahe_fsi)
+        acq.mp4_clahe_FSI.release();
+    if (acq.video_conf->output_equalize_hist_fsi)
+        acq.mp4_equalize_hist_FSI.release();
     if (acq.video_conf->output_rgb)
         acq.mp4_BGR.release();
     if (acq.video_conf->output_800)

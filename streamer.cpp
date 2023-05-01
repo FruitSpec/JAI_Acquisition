@@ -35,7 +35,6 @@ EnumeratedJAIFrame JaiZedStream::pop_jai() {
         pthread_cond_wait(&jai_cv, &jai_mutex);
     }
     EnumeratedJAIFrame frame = jai_frames.front();
-    cout << "frame no. " << frame.BlockID << endl;
     jai_frames.pop();
     pthread_mutex_unlock(&jai_mutex);
     return frame;
