@@ -16,6 +16,15 @@ py::str EnumeratedJAIFrameWrapper::get_timestamp() const{
     return this->e_frame.timestamp;
 }
 
+size_t EnumeratedJAIFrameWrapper::get_size() const {
+    size_t s = 0;
+    s += sizeof(this->e_frame.BlockID);
+    s += sizeof(this->e_frame.fsi_frame);
+    s += sizeof(this->e_frame.timestamp);
+    s += sizeof(this->e_frame.rgb_frame);
+    return s;
+}
+
 
 py::array_t<uint8_t> EnumeratedJAIFrameWrapper::get_fsi_np_frame() {
     if (not this->retrieved_fsi) {
@@ -57,7 +66,6 @@ py::array_t<uint8_t> EnumeratedZEDFrameWrapper::get_np_point_cloud(){
         int rows = this->e_frame.point_cloud.getHeight();
         int cols = this->e_frame.point_cloud.getWidth();
         int channels = this->e_frame.point_cloud.getChannels();
-        cout << "POP ZED PARAMS: " << rows << ", " << cols << ", " << channels << endl;
         this->np_point_cloud = py::array_t<uint8_t>({rows, cols, channels}, this->e_frame.point_cloud.getPtr<uint8_t>());
     }
     return this->np_point_cloud;
@@ -69,7 +77,6 @@ py::array_t<uint8_t> EnumeratedZEDFrameWrapper::get_np_rgb(){
         int rows = this->e_frame.rgb.getHeight();
         int cols = this->e_frame.rgb.getWidth();
         int channels = this->e_frame.rgb.getChannels();
-        cout << "POP ZED PARAMS: " << rows << ", " << cols << ", " << channels << endl;
         this->np_rgb = py::array_t<uint8_t>({rows, cols, channels}, this->e_frame.rgb.getPtr<uint8_t>());
     }
     return this->np_rgb;
@@ -94,11 +101,11 @@ py::tuple JaiZed::connect_cameras_wrapper(short fps, bool debug_mode) {
 void JaiZed::start_acquisition_wrapper(short fps, short exposure_rgb, short exposure_800, short exposure_975,
                                        const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
                                        bool output_rgb, bool output_800, bool output_975, bool output_svo, bool view,
-                                       bool pass_clahe_stream, bool debug_mode) {
+                                       bool transfer_data, bool pass_clahe_stream, bool debug_mode) {
     cout << "starting" << endl;
     acq_.video_conf = parse_args(fps, exposure_rgb, exposure_800, exposure_975,
-                                 output_dir, output_clahe_fsi, output_equalize_hist_fsi, output_rgb,
-                                 output_800, output_975, output_svo, view, pass_clahe_stream, debug_mode);
+                                 output_dir, output_clahe_fsi, output_equalize_hist_fsi, output_rgb, output_800,
+                                 output_975, output_svo, view, transfer_data, pass_clahe_stream, debug_mode);
     start_acquisition(acq_);
 }
 
@@ -115,6 +122,7 @@ EnumeratedZEDFrameWrapper JaiZed::pop_zed_wrapper(){
 }
 
 void JaiZed::stop_acquisition_wrapper() {
+    cout << "STOP" << endl;
     if (acq_.is_running) {
         stop_acquisition(acq_);
     }
@@ -134,7 +142,8 @@ PYBIND11_MODULE(jaized, m) {
             .def_property_readonly("timestamp", &EnumeratedJAIFrameWrapper::get_timestamp)
         .def_property_readonly("fsi", &EnumeratedJAIFrameWrapper::get_fsi_np_frame)
         .def_property_readonly("rgb", &EnumeratedJAIFrameWrapper::get_rgb_np_frame)
-        .def_property_readonly("frame_number", &EnumeratedJAIFrameWrapper::get_frame_number);
+        .def_property_readonly("frame_number", &EnumeratedJAIFrameWrapper::get_frame_number)
+        .def_property_readonly("size", &EnumeratedJAIFrameWrapper::get_size);
 
     py::class_<EnumeratedZEDFrameWrapper>(m, "ZedFrame")
             .def(py::init<EnumeratedZEDFrameWrapper>())

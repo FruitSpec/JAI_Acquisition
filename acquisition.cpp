@@ -122,7 +122,7 @@ void FreeStreamBuffers(BufferList *aBufferList) {
 VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, short exposure_975,
                          const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
                          bool output_rgb, bool output_800, bool output_975, bool output_svo, bool view,
-                         bool pass_clahe_stream, bool debug_mode) {
+                         bool transfer_data, bool pass_clahe_stream, bool debug_mode) {
     auto *video_conf = new VideoConfig;
 
     video_conf->FPS = fps;
@@ -137,6 +137,7 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
     video_conf->output_975 = output_975;
     video_conf->output_svo = output_svo;
     video_conf->view = view;
+    video_conf->transfer_data = transfer_data;
     video_conf->pass_clahe_stream = pass_clahe_stream;
 
 
@@ -396,7 +397,7 @@ bool exists(const string& path){
 bool connect_ZED(AcquisitionParameters &acq, int fps){
     InitParameters init_params;
     init_params.camera_resolution = RESOLUTION::HD1080; // Use HD1080 video mode
-    init_params.camera_fps = fps; // Set fps
+    init_params.camera_fps = 15; // Set fps
     ERROR_CODE err = acq.zed.open(init_params);
     return err == ERROR_CODE::SUCCESS;
 }
@@ -404,24 +405,28 @@ bool connect_ZED(AcquisitionParameters &acq, int fps){
 void ZedThread(AcquisitionParameters &acq) {
     // Grab ZED data and write to SVO file
 
+    EnumeratedZEDFrame zed_frame;
+    sl::SensorsData sensors_data;
+    ERROR_CODE err;
     for (int zed_frame_number = 0; acq.is_running; zed_frame_number++) {
-        EnumeratedZEDFrame zed_frame;
-        sl::SensorsData sensors_data;
-        ERROR_CODE err = acq.zed.grab();
+        err = acq.zed.grab();
         zed_frame.timestamp = get_current_time();
         if (err != ERROR_CODE::SUCCESS) {
             if (acq.debug)
                 acq.frame_drop_log_file << "ZED FRAME DROP - FRAME NO. " << zed_frame_number << endl;
         }
-        acq.zed.retrieveImage(zed_frame.rgb, VIEW::LEFT);
-        acq.zed.getSensorsData(sensors_data, TIME_REFERENCE::IMAGE);
-        acq.zed.retrieveMeasure(zed_frame.point_cloud, MEASURE::XYZ);
-        zed_frame.BlockID = zed_frame_number;
-        zed_frame.imu = sensors_data.imu;
-        std::stringstream imu;
-        imu << get_current_time() << endl << zed_frame.imu.angular_velocity << endl << zed_frame.imu.linear_acceleration;
-        acq.imu_log_file << imu.str() << endl << endl;
-        acq.jz_streamer.push_zed(zed_frame);
+        if (acq.video_conf->transfer_data) {
+            acq.zed.retrieveImage(zed_frame.rgb, VIEW::LEFT);
+            acq.zed.getSensorsData(sensors_data, TIME_REFERENCE::IMAGE);
+            acq.zed.retrieveMeasure(zed_frame.point_cloud, MEASURE::XYZ);
+            zed_frame.BlockID = zed_frame_number;
+            zed_frame.imu = sensors_data.imu;
+            std::stringstream imu;
+            imu << get_current_time() << endl << zed_frame.imu.angular_velocity << endl
+                << zed_frame.imu.linear_acceleration;
+            acq.imu_log_file << imu.str() << endl << endl;
+            acq.jz_streamer.push_zed(zed_frame);
+        }
     }
 
     if (acq.video_conf->output_svo)
@@ -479,7 +484,7 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
         cout << stream_index << ": Acquisition end with " << CurrentBlockID << endl;
 }
 
-void stretch(cuda::GpuMat& channel, double lower = 0.005, double upper = 0.995, double min_int = 25, double max_int = 235) {
+void stretch(cuda::GpuMat& channel, cuda::Stream &stream, double lower = 0.005, double upper = 0.995, double min_int = 25, double max_int = 235) {
     const int hist_size = 256;
     int lower_threshold = 0, upper_threshold = 255;
     double percentile = 0.0;
@@ -487,11 +492,13 @@ void stretch(cuda::GpuMat& channel, double lower = 0.005, double upper = 0.995, 
     cuda::GpuMat gpu_hist;
     cv::Mat cpu_hist;
 
-    cuda::calcHist(channel, gpu_hist);
-    gpu_hist.download(cpu_hist);
+    cuda::calcHist(channel, gpu_hist, stream);
+    gpu_hist.download(cpu_hist, stream);
     cv::Scalar total = cuda::sum(gpu_hist);
 
     // Calculate lower and upper threshold indices for gain
+    
+    stream.waitForCompletion();
 
     for (int i = 0; i < hist_size; i++) {
         percentile += cpu_hist.at<int>(0, i) / total[0];
@@ -510,38 +517,47 @@ void stretch(cuda::GpuMat& channel, double lower = 0.005, double upper = 0.995, 
         }
     }
 
-    double gain = (max_int - min_int) / upper_threshold;
+    double gain = (max_int - min_int) / (upper_threshold - lower_threshold);
     double offset = min_int;
 
-    cuda::multiply(channel, gain, channel);
-    cuda::add(channel, offset, channel);
+    cuda::multiply(channel, gain, channel, 1, -1, stream);
+    cuda::add(channel, offset, channel, noArray(), -1, stream);
 
     cv::Scalar lower_scalar(0);
     cv::Scalar upper_scalar(255);
 
     // Clipping to range [0, 255]
-    cv::cuda::max(lower_scalar, channel, channel);
-    cv::cuda::min(upper_scalar, channel, channel);
+    cv::cuda::max(lower_scalar, channel, channel, stream);
+    cv::cuda::min(upper_scalar, channel, channel, stream);
 }
 
-void stretch_and_clahe(cuda::GpuMat& channel, const Ptr<cuda::CLAHE>& clahe, double lower = 0.005, double upper = 0.995, double min_int = 25,
+void stretch_and_clahe(cuda::GpuMat& channel, cuda::Stream &stream, const Ptr<cuda::CLAHE>& clahe, double lower = 0.005, double upper = 0.995, double min_int = 25,
                        double max_int = 235) {
-    stretch(channel, lower, upper, min_int, max_int);
-    clahe->apply(channel, channel);
+    stretch(channel, stream, lower, upper, min_int, max_int);
+    clahe->apply(channel, channel, stream);
 }
 
-void fsi_from_channels(cv::Ptr<cuda::CLAHE> clahe, cuda::GpuMat& blue, cuda::GpuMat& c_800, cuda::GpuMat& c_975, cuda::GpuMat &fsi,
-                       double lower = 0.005, double upper = 0.995, double min_int = 25, double max_int = 235) {
-//    stretch_and_clahe(blue, clahe, lower, upper, min_int, max_int);
-    stretch_and_clahe(c_800, clahe, lower, upper, min_int, max_int);
-    stretch_and_clahe(c_975, clahe, lower, upper, min_int, max_int);
+void fsi_from_channels(const cv::Ptr<cuda::CLAHE>& clahe, cuda::GpuMat& blue, cuda::Stream &stream_blue,
+                       cuda::GpuMat& c_800, cuda::Stream &stream_800, cuda::GpuMat& c_975, cuda::Stream &stream_975,
+                       cuda::GpuMat &fsi, cuda::Stream &stream_fsi, double lower = 0.005, double upper = 0.995,
+                       double min_int = 25, double max_int = 235) {
+    
+    stretch_and_clahe(blue, stream_blue, clahe, lower, upper, min_int, max_int);
+    stretch_and_clahe(c_800, stream_800, clahe, lower, upper, min_int, max_int);
+    stretch_and_clahe(c_975, stream_975, clahe, lower, upper, min_int, max_int);
 
     std::vector<cv::cuda::GpuMat> channels;
+    
+    stream_blue.waitForCompletion();
     channels.push_back(blue);
+    
+    stream_800.waitForCompletion();
     channels.push_back(c_800);
+    
+    stream_975.waitForCompletion();
     channels.push_back(c_975);
 
-    cuda::merge(channels, fsi);
+    cuda::merge(channels, fsi, stream_fsi);
 }
 
 void MergeThread(AcquisitionParameters &acq) {
@@ -549,7 +565,7 @@ void MergeThread(AcquisitionParameters &acq) {
     cv::Mat Frames[3], res;
     cuda::GpuMat cudaFSI_clahe, cudaFSI_equalized_hist;
     std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3), cudaFrames_equalized(3);
-    std::vector<cv::Mat> images(3);
+    cuda::Stream streams[3], stream_fsi_equalize_hist, stream_fsi_clahe;
     int frame_count = 0;
     struct timespec max_wait = {0, 0};
     SingleJAIChannel *e_frames[3] = {new SingleJAIChannel, new SingleJAIChannel, new SingleJAIChannel};
@@ -591,64 +607,83 @@ void MergeThread(AcquisitionParameters &acq) {
             }
             continue;
         }
+        auto start = std::chrono::system_clock::now();
+
         cv::Mat res_clahe_fsi, res_equalize_hist_fsi;
         // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV refers to it as BayerBG
         // for more info look at - https://github.com/opencv/opencv/issues/19629
 
-        cudaFrames[0].upload(Frames[0]); // channel 0 = BayerBG8
-        cudaFrames[2].upload(Frames[1]); // channel 1 = 800nm -> Red
-        cudaFrames[1].upload(Frames[2]); // channel 2 = 975nm -> Green
+        cudaFrames[0].upload(Frames[0], streams[0]); // channel 0 = BayerBG8
+        cudaFrames[2].upload(Frames[1], streams[2]); // channel 1 = 800nm -> Red
+        cudaFrames[1].upload(Frames[2], streams[1]); // channel 2 = 975nm -> Green
 
-        cv::cuda::demosaicing(cudaFrames[0], cudaFrames[0], cv::COLOR_BayerBG2BGR);
+        cv::cuda::demosaicing(cudaFrames[0], cudaFrames[0], cv::COLOR_BayerBG2BGR, -1, streams[0]);
         if (acq.video_conf->output_rgb)
-            cudaFrames[0].download(Frames[0]);
-        cv::cuda::split(cudaFrames[0], cudaBGR);
+            cudaFrames[0].download(Frames[0], streams[0]);
+        cv::cuda::split(cudaFrames[0], cudaBGR, streams[0]);
         cudaFrames[0] = cudaBGR[2]; // just pick the blue from the bayer
         for (int i = 0; i < 3; i++) {
-            cv::cuda::normalize(cudaFrames[i], cudaFrames[i], 0, 255, cv::NORM_MINMAX, CV_8U);
+            cv::cuda::normalize(cudaFrames[i], cudaFrames[i], 0, 255, cv::NORM_MINMAX, CV_8U, noArray(), streams[i]);
         }
         if (acq.video_conf->output_800)
-            cudaFrames[2].download(Frames[1]);
+            cudaFrames[2].download(Frames[1], streams[2]);
         if (acq.video_conf->output_975)
-            cudaFrames[1].download(Frames[2]);
+            cudaFrames[1].download(Frames[2], streams[1]);
 
         if (acq.video_conf->output_equalize_hist_fsi or (not acq.video_conf->pass_clahe_stream)) {
             for (int i = 0; i < 3; i++) {
-                cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
+                cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i], streams[i]);
             }
-            cv::cuda::merge(cudaFrames_equalized, cudaFSI_equalized_hist);
-            cudaFSI_equalized_hist.download(res_equalize_hist_fsi);
+            
+            cv::cuda::merge(cudaFrames_equalized, cudaFSI_equalized_hist, stream_fsi_equalize_hist);
+            cudaFSI_equalized_hist.download(res_equalize_hist_fsi, stream_fsi_equalize_hist);
         }
         if (acq.video_conf->output_clahe_fsi or acq.video_conf->pass_clahe_stream) {
-            fsi_from_channels(clahe, cudaFrames[0], cudaFrames[1], cudaFrames[2], cudaFSI_clahe);
-            cudaFSI_clahe.download(res_clahe_fsi);
+            fsi_from_channels(clahe, cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2], cudaFSI_clahe, stream_fsi_clahe);
+            cudaFSI_clahe.download(res_clahe_fsi, stream_fsi_clahe);
         }
 
         string timestamp = e_frames[0]->timestamp;
         int BlockID = e_frames[0]->BlockID;
         EnumeratedJAIFrame e_frame_fsi;
-        if (acq.video_conf->output_clahe_fsi)
-            e_frame_fsi = {timestamp, res_clahe_fsi, Frames[0], BlockID};
-        else
-            e_frame_fsi = {timestamp, res_equalize_hist_fsi, Frames[0], BlockID};
-
+        if (acq.video_conf->transfer_data) {
+            if (acq.video_conf->pass_clahe_stream) {
+                stream_fsi_clahe.waitForCompletion();
+                e_frame_fsi = {timestamp, res_clahe_fsi, Frames[0], BlockID};
+            } else {
+                stream_fsi_equalize_hist.waitForCompletion();
+                e_frame_fsi = {timestamp, res_equalize_hist_fsi, Frames[0], BlockID};
+            }
+        }
         acq.jz_streamer.push_jai(e_frame_fsi);
 
         frame_count++;
         if (frame_count % (acq.video_conf->FPS * 30) == 0 and acq.debug)
             cout << endl << frame_count / (acq.video_conf->FPS * 60.0) << " minutes of video written" << endl << endl;
 
-        if (acq.video_conf->output_clahe_fsi)
+        if (acq.video_conf->output_clahe_fsi) {
+            stream_fsi_clahe.waitForCompletion();
             acq.mp4_clahe_FSI.write(res_clahe_fsi);
-        if (acq.video_conf->output_equalize_hist_fsi)
+        }
+        if (acq.video_conf->output_equalize_hist_fsi) {
+            stream_fsi_equalize_hist.waitForCompletion();
             acq.mp4_equalize_hist_FSI.write(res_equalize_hist_fsi);
-        if (acq.video_conf->output_rgb)
+        }
+        if (acq.video_conf->output_rgb) {
+            streams[0].waitForCompletion();
             acq.mp4_BGR.write(Frames[0]);
-        if (acq.video_conf->output_800)
+        }
+        if (acq.video_conf->output_800) {
+            streams[2].waitForCompletion();
             acq.mp4_800.write(Frames[1]);
-        if (acq.video_conf->output_975)
-//            cudaFrames[2].download(Frames[2]);
+        }
+        if (acq.video_conf->output_975) {
+            streams[1].waitForCompletion();
             acq.mp4_975.write(Frames[2]);
+        }
+        auto end = std::chrono::system_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+//        std::cout << "Elapsed time: " << elapsed.count() << " ms" << endl;
     }
 }
 
@@ -658,7 +693,7 @@ string get_current_time() {
     auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count() % 1000000;
     auto current_time = std::chrono::system_clock::to_time_t(now);
     std::stringstream ss_now;
-    ss_now << std::put_time(std::localtime(&current_time), "%Y-%m-%d %H:%M:%S.") << std::setfill('O')
+    ss_now << std::put_time(std::localtime(&current_time), "%Y-%m-%d %H:%M:%S.") << std::setfill('0')
     << std::setw(6) << microseconds;
     return ss_now.str();
 }
@@ -722,6 +757,9 @@ void stop_acquisition(AcquisitionParameters &acq) {
     acq.jai_t2.join();
     acq.zed_t.join();
     acq.merge_t.join();
+
+    for (auto & lBufferList : acq.lBufferLists)
+        FreeStreamBuffers(&lBufferList);
 
     acq.frame_drop_log_file.close();
     acq.imu_log_file.close();

@@ -55,6 +55,7 @@ struct VideoConfig {
     int64_t width = 1536, height = 2048;
     bool output_clahe_fsi, output_equalize_hist_fsi, output_rgb, output_800, output_975, output_svo;
     bool view;
+    bool transfer_data;
     bool pass_clahe_stream;
     string output_dir = string("/home/mic-730ai/Desktop/JAI_Results");
 };
@@ -91,7 +92,7 @@ void FreeStreamBuffers(BufferList *aBufferList);
 VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, short exposure_975,
                          const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
                          bool output_rgb, bool output_800, bool output_975, bool output_svo, bool view,
-                         bool pass_clahe_stream, bool debug_mode);
+                         bool transfer_data, bool pass_clahe_stream, bool debug_mode);
 
 void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvString& source, int auto_exposure_max);
 

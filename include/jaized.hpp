@@ -22,6 +22,8 @@ public:
 
     py::str get_timestamp() const;
 
+    size_t get_size() const;
+
     py::array_t<uint8_t> get_fsi_np_frame();
 
     py::array_t<uint8_t> get_rgb_np_frame();
@@ -61,7 +63,7 @@ public:
     void start_acquisition_wrapper(short fps, short exposure_rgb, short exposure_800, short exposure_975,
                                    const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
                                    bool output_rgb, bool output_800, bool output_975, bool output_svo, bool view,
-                                   bool pass_clahe_stream, bool debug_mode);
+                                   bool transfer_data, bool pass_clahe_stream, bool debug_mode);
 
     EnumeratedJAIFrameWrapper pop_jai_wrapper();
 
