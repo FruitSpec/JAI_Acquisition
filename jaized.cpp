@@ -100,12 +100,12 @@ py::tuple JaiZed::connect_cameras_wrapper(short fps, bool debug_mode) {
 
 void JaiZed::start_acquisition_wrapper(short fps, short exposure_rgb, short exposure_800, short exposure_975,
                                        const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
-                                       bool output_rgb, bool output_800, bool output_975, bool output_svo, bool view,
-                                       bool transfer_data, bool pass_clahe_stream, bool debug_mode) {
-    cout << "starting" << endl;
+                                       bool output_rgb, bool output_800, bool output_975, bool output_svo,
+                                       bool output_zed_mkv, bool view, bool transfer_data, bool pass_clahe_stream,
+                                       bool debug_mode) {
     acq_.video_conf = parse_args(fps, exposure_rgb, exposure_800, exposure_975,
                                  output_dir, output_clahe_fsi, output_equalize_hist_fsi, output_rgb, output_800,
-                                 output_975, output_svo, view, transfer_data, pass_clahe_stream, debug_mode);
+                                 output_975, output_svo, output_zed_mkv, view, transfer_data, pass_clahe_stream, debug_mode);
     start_acquisition(acq_);
 }
 
@@ -122,7 +122,6 @@ EnumeratedZEDFrameWrapper JaiZed::pop_zed_wrapper(){
 }
 
 void JaiZed::stop_acquisition_wrapper() {
-    cout << "STOP" << endl;
     if (acq_.is_running) {
         stop_acquisition(acq_);
     }

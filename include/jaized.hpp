@@ -62,8 +62,9 @@ public:
 
     void start_acquisition_wrapper(short fps, short exposure_rgb, short exposure_800, short exposure_975,
                                    const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
-                                   bool output_rgb, bool output_800, bool output_975, bool output_svo, bool view,
-                                   bool transfer_data, bool pass_clahe_stream, bool debug_mode);
+                                   bool output_rgb, bool output_800, bool output_975, bool output_svo,
+                                   bool output_zed_mkv, bool view, bool transfer_data, bool pass_clahe_stream,
+                                   bool debug_mode);
 
     EnumeratedJAIFrameWrapper pop_jai_wrapper();
 
