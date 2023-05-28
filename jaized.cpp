@@ -94,11 +94,22 @@ py::tuple JaiZed::connect_cameras_wrapper(short fps, bool debug_mode) {
     acq_.jz_streamer = JaiZedStream();
     JaiZedStatus jzs = connect_cameras(acq_, fps);
     py::tuple tpl = py::make_tuple(jzs.jai_connected, jzs.zed_connected);
-    acq_.is_connected = jzs.jai_connected and jzs.zed_connected;
+    acq_.jai_connected = jzs.jai_connected;
+    acq_.zed_connected = jzs.zed_connected;
     return tpl;
 }
 
-void JaiZed::start_acquisition_wrapper(short fps, short exposure_rgb, short exposure_800, short exposure_975,
+bool JaiZed::connect_jai_wrapper() {
+    acq_.jai_connected = setup_JAI(acq_);
+    return acq_.jai_connected;
+}
+
+bool JaiZed::connect_zed_wrapper(short fps) {
+    acq_.zed_connected = connect_ZED(acq_, fps);
+    return acq_.zed_connected;
+}
+
+bool JaiZed::start_acquisition_wrapper(short fps, short exposure_rgb, short exposure_800, short exposure_975,
                                        const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
                                        bool output_rgb, bool output_800, bool output_975, bool output_svo,
                                        bool output_zed_mkv, bool view, bool transfer_data, bool pass_clahe_stream,
@@ -106,7 +117,19 @@ void JaiZed::start_acquisition_wrapper(short fps, short exposure_rgb, short expo
     acq_.video_conf = parse_args(fps, exposure_rgb, exposure_800, exposure_975,
                                  output_dir, output_clahe_fsi, output_equalize_hist_fsi, output_rgb, output_800,
                                  output_975, output_svo, output_zed_mkv, view, transfer_data, pass_clahe_stream, debug_mode);
-    start_acquisition(acq_);
+    return start_acquisition(acq_);
+}
+
+bool JaiZed::is_running() {
+    return acq_.is_running;
+}
+
+bool JaiZed::jai_connected() {
+    return acq_.jai_connected;
+}
+
+bool JaiZed::zed_connected() {
+    return acq_.zed_connected;
 }
 
 EnumeratedJAIFrameWrapper JaiZed::pop_jai_wrapper(){
@@ -128,7 +151,20 @@ void JaiZed::stop_acquisition_wrapper() {
 }
 
 void JaiZed::disconnect_cameras_wrapper() {
-    if (acq_.is_connected and not acq_.is_running)
+    JaiZed::disconnect_jai_wrapper();
+    JaiZed::disconnect_zed_wrapper();
+    auto is_connected = acq_.jai_connected and acq_.zed_connected;
+    if (is_connected and not acq_.is_running)
+        disconnect_cameras(acq_);
+}
+
+void JaiZed::disconnect_jai_wrapper() {
+    if (acq_.jai_connected)
+        disconnect_cameras(acq_);
+}
+
+void JaiZed::disconnect_zed_wrapper() {
+    if (acq_.zed_connected)
         disconnect_cameras(acq_);
 }
 
@@ -166,9 +202,16 @@ PYBIND11_MODULE(jaized, m) {
     py::class_<JaiZed>(m, "JaiZed")
         .def(py::init<>())
         .def("connect_cameras", &JaiZed::connect_cameras_wrapper)
+        .def("connect_jai", &JaiZed::connect_jai_wrapper)
+        .def("connect_zed", &JaiZed::connect_zed_wrapper)
         .def("start_acquisition", &JaiZed::start_acquisition_wrapper)
+        .def("jai_connected", &JaiZed::jai_connected)
+        .def("zed_connected", &JaiZed::zed_connected)
+        .def("is_running", &JaiZed::is_running)
         .def("pop_jai", &JaiZed::pop_jai_wrapper)
         .def("pop_zed", &JaiZed::pop_zed_wrapper)
         .def("stop_acquisition", &JaiZed::stop_acquisition_wrapper)
-        .def("disconnect_cameras", &JaiZed::disconnect_cameras_wrapper);
+        .def("disconnect_cameras", &JaiZed::disconnect_cameras_wrapper)
+        .def("disconnect_jai", &JaiZed::disconnect_jai_wrapper)
+        .def("disconnect_zed", &JaiZed::disconnect_zed_wrapper);
 }

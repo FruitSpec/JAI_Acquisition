@@ -72,7 +72,7 @@ struct AcquisitionParameters {
     pthread_mutex_t grab_mtx = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_t acq_start_mtx = PTHREAD_MUTEX_INITIALIZER;
     VideoWriter mp4_clahe_FSI, mp4_equalize_hist_FSI, mp4_BGR, mp4_800, mp4_975, mp4_zed_rgb, mp4_zed_depth;
-    bool is_connected, is_running, debug;
+    bool jai_connected, zed_connected, is_running, debug;
     ofstream frame_drop_log_file, imu_log_file;
     JaiZedStream jz_streamer;
 };
@@ -94,7 +94,8 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
                          bool output_rgb, bool output_800, bool output_975, bool output_svo, bool output_zed_mkv,
                          bool view, bool transfer_data, bool pass_clahe_stream, bool debug_mode);
 
-void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvString& source, int auto_exposure_max);
+void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvString& source, int auto_exposure_max,
+                               const PvString &pixel_format);
 
 void set_acquisition_parameters(AcquisitionParameters &acq);
 
@@ -102,9 +103,7 @@ bool setup_JAI(AcquisitionParameters &acq);
 
 void MP4CreateFirstTime(AcquisitionParameters &acq);
 
-string gs_sink_builder(int file_index, const string& output_type_name, const string& output_dir);
-
-bool exists(const string& path);
+string gs_sink_builder(const string& output_type_name, const string& output_dir);
 
 bool connect_ZED(AcquisitionParameters &acq, int fps);
 
@@ -118,9 +117,13 @@ string get_current_time();
 
 JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps);
 
-void start_acquisition(AcquisitionParameters &acq);
+bool start_acquisition(AcquisitionParameters &acq);
 
 void stop_acquisition(AcquisitionParameters &acq);
+
+void disconnect_jai(AcquisitionParameters &acq);
+
+void disconnect_zed(AcquisitionParameters &acq);
 
 void disconnect_cameras(AcquisitionParameters &acq);
 
