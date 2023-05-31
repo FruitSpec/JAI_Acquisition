@@ -218,14 +218,14 @@ bool setup_JAI(AcquisitionParameters &acq) {
                 lStreams[i] = OpenStream(lConnectionID, acq.debug);
                 if (lStreams[i] != nullptr) {
                     ConfigureStream(acq.lDevice, lStreams[i], i);
-                    CreateStreamBuffers(acq.lDevice, lStreams[i], &acq.lBufferLists[i]);
+//                    CreateStreamBuffers(acq.lDevice, lStreams[i], &acq.lBufferLists[i]);
                     acq.MyStreamInfos[i]->aStream = lStreams[i];
                     acq.MyStreamInfos[i]->stream_index = i;
                 } else
                     test_streaming = false;
             }
 
-            acq.lDevice->StreamEnable();
+//            acq.lDevice->StreamEnable();
             return test_streaming;
         }
         else
@@ -240,7 +240,7 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
     short file_index = 0;
     string f_fsi_clahe, f_fsi_equalize_hist, f_rgb, f_800, f_975, f_zed_rgb, f_zed_depth;
     string width_s, height_s, FPS_s, file_index_s;
-    string frame_drop_log_path, imu_log_path;
+    string frame_drop_log_path, imu_log_path, jai_acquisition_log_path;
     char zed_filename[100];
 
     acq.video_conf->file_index = - 1;
@@ -252,9 +252,11 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
 
         acq.video_conf->file_index = file_index;
 
+        jai_acquisition_log_path = acq.video_conf->output_dir + "/jai_acquisition.log";
         frame_drop_log_path = acq.video_conf->output_dir + "/frame_drop.log";
         imu_log_path = acq.video_conf->output_dir + "/imu.log";
 
+        acq.jai_acquisition_log.open(jai_acquisition_log_path, ios_base::app);
         acq.frame_drop_log_file.open(frame_drop_log_path, ios_base::app);
         acq.imu_log_file.open(imu_log_path, ios_base::app);
 
@@ -420,6 +422,8 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
                 curr_frame->frame = cv::Mat(height, width, cv_bit_depth, lBuffer->GetImage()->GetDataPointer());
                 curr_frame->BlockID = CurrentBlockID;
                 pthread_mutex_lock(&acq.grab_mtx);
+                string s = "JAI STREAM" + to_string(stream_index) + " - PUSH FRAME " + to_string(CurrentBlockID);
+                acq.jai_acquisition_log << s << endl;
                 MyStreamInfo->Frames.push(curr_frame);
                 pthread_cond_signal(&acq.MergeFramesEvent[stream_index]);
                 pthread_mutex_unlock(&acq.grab_mtx);
@@ -550,6 +554,8 @@ void MergeThread(AcquisitionParameters &acq) {
                 e_frames[i] = acq.MyStreamInfos[i]->Frames.front();
                 Frames[i] = e_frames[i]->frame;
                 acq.MyStreamInfos[i]->Frames.pop();
+                string s = "MERGE POP FRAME " + to_string(e_frames[i]->BlockID) + " FROM STREAM " + to_string(i);
+                acq.jai_acquisition_log << s << endl;
             }
             grabbed[i] = false;
             pthread_mutex_unlock(&acq.grab_mtx);
@@ -566,6 +572,7 @@ void MergeThread(AcquisitionParameters &acq) {
             }
             continue;
         }
+
         auto start = std::chrono::system_clock::now();
 
         cv::Mat res_clahe_fsi, res_equalize_hist_fsi;
@@ -604,6 +611,9 @@ void MergeThread(AcquisitionParameters &acq) {
 
         string timestamp = e_frames[0]->timestamp;
         int BlockID = e_frames[0]->BlockID;
+        string s = "MERGE SYNC FRAME " + to_string(e_frames[0]->BlockID);
+        acq.jai_acquisition_log << s << endl;
+
         EnumeratedJAIFrame e_frame_fsi;
         if (acq.video_conf->transfer_data) {
             if (acq.video_conf->pass_clahe_stream) {
@@ -686,6 +696,10 @@ bool start_acquisition(AcquisitionParameters &acq) {
 
     if (acq.jai_connected and acq.zed_connected) {
         set_acquisition_parameters(acq);
+        for (int i = 0; i < 3; i++) {
+            CreateStreamBuffers(acq.lDevice, acq.MyStreamInfos[i]->aStream, &acq.lBufferLists[i]);
+        }
+        acq.lDevice->StreamEnable();
 
         acq.is_running = true;
         MP4CreateFirstTime(acq);
@@ -711,20 +725,38 @@ void stop_acquisition(AcquisitionParameters &acq) {
     PvGenCommand *lStop;
 
     if (acq.debug)
-        cout << "stop received" << endl;
+        cout << "ACQUISITION STOP RECEIVED" << endl;
 
     // Get device parameters need to control streaming - set acquisition stop command
     lDeviceParams = acq.lDevice->GetParameters();
     lStop = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStop"));
-
     acq.is_running = false;
+
 
     acq.jai_t0.join();
     acq.jai_t1.join();
     acq.jai_t2.join();
+
+    lStop->Execute();
+
     acq.zed_t.join();
     acq.merge_t.join();
 
+    for (auto & MyStreamInfo : acq.MyStreamInfos) {
+        MyStreamInfo->aStream->AbortQueuedBuffers();
+
+        // Empty the remaining frames that from the buffers
+        while (MyStreamInfo->aStream->GetQueuedBufferCount() > 0) {
+            PvBuffer *lBuffer = nullptr;
+            PvResult lOperationResult;
+            MyStreamInfo->aStream->RetrieveBuffer(&lBuffer, &lOperationResult);
+        }
+        while (not MyStreamInfo->Frames.empty()) {
+            MyStreamInfo->Frames.pop();
+        }
+    }
+
+    acq.jai_acquisition_log.close();
     acq.frame_drop_log_file.close();
     acq.imu_log_file.close();
 
@@ -745,10 +777,12 @@ void stop_acquisition(AcquisitionParameters &acq) {
         acq.mp4_zed_depth.release();
     }
 
-
     // Tell the device to stop sending images + disable streaming
-    lStop->Execute();
     acq.lDevice->StreamDisable();
+
+    if (acq.debug)
+        cout << "ACQUISITION STOPPED SUCCESFULY" << endl;
+
 }
 
 void disconnect_zed(AcquisitionParameters &acq){
@@ -773,12 +807,12 @@ void disconnect_jai(AcquisitionParameters &acq) {
         acq.MyStreamInfos[i]->aStream->Close();
         PvStream::Free(acq.MyStreamInfos[i]->aStream);
     }
-
+    acq.lDevice->StreamDisable();
     // Disconnect the device
     cout << acq.jai_connected << endl;
     if (acq.jai_connected) {
-        PvDevice::Free(acq.lDevice);
         acq.lDevice->Disconnect();
+        PvDevice::Free(acq.lDevice);
     }
 
     pthread_cond_destroy(&acq.GrabEvent);

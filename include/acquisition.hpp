@@ -74,6 +74,7 @@ struct AcquisitionParameters {
     VideoWriter mp4_clahe_FSI, mp4_equalize_hist_FSI, mp4_BGR, mp4_800, mp4_975, mp4_zed_rgb, mp4_zed_depth;
     bool jai_connected, zed_connected, is_running, debug;
     ofstream frame_drop_log_file, imu_log_file;
+    ofstream jai_acquisition_log;
     JaiZedStream jz_streamer;
 };
 
