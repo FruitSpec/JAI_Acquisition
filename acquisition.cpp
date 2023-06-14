@@ -676,15 +676,14 @@ JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps){
     pthread_cond_init(&acq.GrabEvent, nullptr);
     bool jai_connected = false, zed_connected = false;
 
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 12; i++) {
         if (not jai_connected)
             jai_connected = setup_JAI(acq);
         if (not zed_connected)
             zed_connected = connect_ZED(acq, fps);
         if (jai_connected and zed_connected)
             break;
-        else if (i < 4)
-            sleep(2 * i + 1);
+        sleep(10);
     }
     JaiZedStatus jzs = {jai_connected, zed_connected};
 
