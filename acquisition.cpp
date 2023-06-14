@@ -674,11 +674,19 @@ string get_current_time() {
 JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps){
 
     pthread_cond_init(&acq.GrabEvent, nullptr);
+    bool jai_connected = false, zed_connected = false;
 
-    JaiZedStatus jzs {
-        setup_JAI(acq),
-        connect_ZED(acq, fps)
-    };
+    for (int i = 0; i < 5; i++) {
+        if (not jai_connected)
+            jai_connected = setup_JAI(acq);
+        if (not zed_connected)
+            zed_connected = connect_ZED(acq, fps);
+        if (jai_connected and zed_connected)
+            break;
+        else if (i < 4)
+            sleep(i + 1);
+    }
+    JaiZedStatus jzs = {jai_connected, zed_connected};
 
     if (acq.debug){
         cout << (jzs.jai_connected ? "JAI CONNECTED" : "JAI NOT CONNECTED") << endl;
