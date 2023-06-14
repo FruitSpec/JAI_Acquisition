@@ -684,7 +684,7 @@ JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps){
         if (jai_connected and zed_connected)
             break;
         else if (i < 4)
-            sleep(i + 1);
+            sleep(2 * i + 1);
     }
     JaiZedStatus jzs = {jai_connected, zed_connected};
 
