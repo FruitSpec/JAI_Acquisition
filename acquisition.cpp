@@ -684,7 +684,12 @@ JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps){
             zed_connected = connect_ZED(acq, fps);
         if (jai_connected and zed_connected)
             break;
-        sleep(10);
+        if (acq.debug) {
+            cout << (jai_connected ? "JAI CONNECTED" : "JAI NOT CONNECTED") << endl;
+            cout << (zed_connected ? "ZED CONNECTED" : "ZED NOT CONNECTED") << endl;
+            cout << "Retrying..." << endl;
+        }
+        sleep(i * 5 + 2);
     }
     JaiZedStatus jzs = {jai_connected, zed_connected};
 
