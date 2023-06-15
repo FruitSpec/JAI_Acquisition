@@ -436,11 +436,10 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
         } else if (acq.debug) {
             acq.is_running = false;
             acq.jai_connected = false;
+            exit(1);
             cout << stream_index << ": BAD RESULT!" << endl;
             // Retrieve buffer failure
             cout << lResult.GetCodeString().GetAscii() << "\n";
-            raise(SIGTERM);
-            break;
         }
     }
     if (acq.debug)
@@ -727,7 +726,7 @@ bool start_acquisition(AcquisitionParameters &acq) {
         acq.jai_t1 = thread(GrabThread, 1, ref(acq));
         acq.jai_t2 = thread(GrabThread, 2, ref(acq));
         acq.merge_t = thread(MergeThread, ref(acq));
-        pthread_cond_wait(&acq.GrabEvent, &acq.acq_start_mtx);
+//        pthread_cond_wait(&acq.GrabEvent, &acq.acq_start_mtx);
     }
     else if (acq.debug)
         cout << "NOT CONNECTED" << endl;
