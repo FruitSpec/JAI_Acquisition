@@ -439,6 +439,7 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
             cout << stream_index << ": BAD RESULT!" << endl;
             // Retrieve buffer failure
             cout << lResult.GetCodeString().GetAscii() << "\n";
+            raise(SIGTERM);
             break;
         }
     }
@@ -687,7 +688,7 @@ JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps){
     }
     JaiZedStatus jzs = {jai_connected, zed_connected};
 
-    if (acq.debug){
+    if (acq.debug) {
         cout << (jzs.jai_connected ? "JAI CONNECTED" : "JAI NOT CONNECTED") << endl;
         cout << (jzs.zed_connected ? "ZED CONNECTED" : "ZED NOT CONNECTED") << endl;
     }
