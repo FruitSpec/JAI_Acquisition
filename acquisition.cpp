@@ -677,7 +677,7 @@ JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps){
     pthread_cond_init(&acq.GrabEvent, nullptr);
     bool jai_connected = false, zed_connected = false;
 
-    for (int i = 0; i < 12; i++) {
+    while (true) {
         if (not jai_connected)
             jai_connected = setup_JAI(acq);
         if (not zed_connected)
@@ -689,7 +689,7 @@ JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps){
             cout << (zed_connected ? "ZED CONNECTED" : "ZED NOT CONNECTED") << endl;
             cout << "Retrying..." << endl;
         }
-        sleep(i * 5 + 2);
+        sleep(10);
     }
     JaiZedStatus jzs = {jai_connected, zed_connected};
 
