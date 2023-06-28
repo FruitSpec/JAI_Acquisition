@@ -322,8 +322,6 @@ bool connect_ZED(AcquisitionParameters &acq, int fps){
     init_params.camera_resolution = RESOLUTION::HD1080; // Use HD1080 video mode
     init_params.camera_fps = 15; // Set fps
     init_params.depth_mode = DEPTH_MODE::QUALITY;
-    init_params.depth_maximum_distance = 8000;
-    init_params.depth_minimum_distance = 500;
     ERROR_CODE err = acq.zed.open(init_params);
     acq.zed_connected = err == ERROR_CODE::SUCCESS;
     return acq.zed_connected;
@@ -374,7 +372,7 @@ void ZedThread(AcquisitionParameters &acq) {
             cv_zed_gpu_rgb.download(cv_zed_rgb, stream_rgb);
 
             cuda::GpuMat cv_zed_gpu_depth(height, width, CV_32FC1, depth_ptr, depth_step);
-//            cuda::min(cv_zed_gpu_depth, 8000.0f, cv_zed_gpu_depth, stream_depth);
+            cuda::min(cv_zed_gpu_depth, 8000.0f, cv_zed_gpu_depth, stream_depth);
             cv::cuda::multiply(cv_zed_gpu_depth, 255.0f / 8000.0f, cv_zed_gpu_depth, 1, CV_32FC1, stream_depth);
             cv_zed_gpu_depth.convertTo(cv_zed_gpu_depth, CV_8UC1, stream_depth);
 
