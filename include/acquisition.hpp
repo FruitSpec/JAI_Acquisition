@@ -53,7 +53,8 @@ struct VideoConfig {
     short FPS = 15, exposure_rgb = 1000, exposure_800 = 2000, exposure_975 = 4000;
     short file_index = -1;
     int64_t width = 1536, height = 2048;
-    bool output_clahe_fsi, output_equalize_hist_fsi, output_rgb, output_800, output_975, output_svo, output_zed_mkv;
+    bool output_clahe_fsi, output_equalize_hist_fsi, output_rgb, output_800, output_975, output_svo;
+    bool output_zed_gray, output_zed_depth, output_zed_pc;
     bool view;
     bool transfer_data;
     bool pass_clahe_stream;
@@ -71,7 +72,8 @@ struct AcquisitionParameters {
     pthread_cond_t MergeFramesEvent[3];
     pthread_mutex_t grab_mtx = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_t acq_start_mtx = PTHREAD_MUTEX_INITIALIZER;
-    VideoWriter mp4_clahe_FSI, mp4_equalize_hist_FSI, mp4_BGR, mp4_800, mp4_975, mp4_zed_rgb, mp4_zed_depth;
+    VideoWriter mp4_clahe_FSI, mp4_equalize_hist_FSI, mp4_BGR, mp4_800, mp4_975;
+    VideoWriter mp4_zed_rgb, mp4_zed_depth, mp4_zed_X, mp4_zed_Y, mp4_zed_Z;
     bool jai_connected, zed_connected, is_running, debug;
     ofstream frame_drop_log_file, imu_log_file;
     ofstream jai_acquisition_log;
@@ -92,8 +94,9 @@ void FreeStreamBuffers(BufferList *aBufferList);
 
 VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, short exposure_975,
                          const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
-                         bool output_rgb, bool output_800, bool output_975, bool output_svo, bool output_zed_mkv,
-                         bool view, bool transfer_data, bool pass_clahe_stream, bool debug_mode);
+                         bool output_rgb, bool output_800, bool output_975, bool output_svo, bool output_zed_gray,
+                         bool output_zed_depth, bool output_zed_pc, bool view, bool transfer_data,
+                         bool pass_clahe_stream, bool debug_mode);
 
 void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvString& source, int auto_exposure_max,
                                const PvString &pixel_format);

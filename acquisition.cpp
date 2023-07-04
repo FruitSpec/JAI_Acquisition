@@ -121,8 +121,9 @@ void FreeStreamBuffers(BufferList *aBufferList) {
 
 VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, short exposure_975,
                          const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
-                         bool output_rgb, bool output_800, bool output_975, bool output_svo, bool output_zed_mkv,
-                         bool view, bool transfer_data, bool pass_clahe_stream, bool debug_mode) {
+                         bool output_rgb, bool output_800, bool output_975, bool output_svo, bool output_zed_gray,
+                         bool output_zed_depth, bool output_zed_pc, bool view, bool transfer_data,
+                         bool pass_clahe_stream, bool debug_mode) {
     auto *video_conf = new VideoConfig;
 
     video_conf->FPS = fps;
@@ -136,7 +137,9 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
     video_conf->output_800 = output_800;
     video_conf->output_975 = output_975;
     video_conf->output_svo = output_svo;
-    video_conf->output_zed_mkv = output_zed_mkv;
+    video_conf->output_zed_gray = output_zed_gray;
+    video_conf->output_zed_depth = output_zed_depth;
+    video_conf->output_zed_pc = output_zed_pc;
     video_conf->view = view;
     video_conf->transfer_data = transfer_data;
     video_conf->pass_clahe_stream = pass_clahe_stream;
@@ -154,7 +157,9 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
             std::cout << "output-800: " << std::boolalpha << video_conf->output_800 << std::endl;
             std::cout << "output-975: " << std::boolalpha << video_conf->output_975 << std::endl;
             std::cout << "output-svo: " << std::boolalpha << video_conf->output_svo << std::endl;
-            std::cout << "output-zed-mkv: " << std::boolalpha << video_conf->output_zed_mkv << std::endl;
+            std::cout << "output-zed-rgb: " << std::boolalpha << video_conf->output_zed_gray << std::endl;
+            std::cout << "output-zed-depth: " << std::boolalpha << video_conf->output_zed_depth << std::endl;
+            std::cout << "output-zed-point-cloud: " << std::boolalpha << video_conf->output_zed_pc << std::endl;
             std::cout << "output-dir: " << std::boolalpha << video_conf->output_dir << std::endl;
         }
     }
@@ -238,7 +243,7 @@ bool setup_JAI(AcquisitionParameters &acq) {
 void MP4CreateFirstTime(AcquisitionParameters &acq){
     bool is_exist = false;
     short file_index = 0;
-    string f_fsi_clahe, f_fsi_equalize_hist, f_rgb, f_800, f_975, f_zed_rgb, f_zed_depth;
+    string f_fsi_clahe, f_fsi_equalize_hist, f_rgb, f_800, f_975, f_zed_rgb, f_zed_depth, f_zed_X, f_zed_Y, f_zed_Z;
     string width_s, height_s, FPS_s, file_index_s;
     string frame_drop_log_path, imu_log_path, jai_acquisition_log_path;
     char zed_filename[100];
@@ -300,13 +305,26 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
             RecordingParameters params(zed_filename, SVO_COMPRESSION_MODE::H265);
             acq.zed.enableRecording(params);
         }
-        if (acq.video_conf->output_zed_mkv) {
+        if (acq.video_conf->output_zed_gray) {
             f_zed_rgb = gs_sink_builder("ZED", acq.video_conf->output_dir);
-            f_zed_depth = gs_sink_builder("DEPTH", acq.video_conf->output_dir);
             string gs_zed_rgb = gst_1c + f_zed_rgb;
-            string gs_zed_depth = gst_1c + f_zed_depth;
             acq.mp4_zed_rgb.open(gs_zed_rgb, four_c, 15, zed_frame_size, false);
+        }
+        if (acq.video_conf->output_zed_depth) {
+            f_zed_depth = gs_sink_builder("DEPTH", acq.video_conf->output_dir);
+            string gs_zed_depth = gst_1c + f_zed_depth;
             acq.mp4_zed_depth.open(gs_zed_depth, four_c, 15, zed_frame_size, false);
+        }
+        if (acq.video_conf->output_zed_pc){
+            f_zed_X = gs_sink_builder("ZED_X", acq.video_conf->output_dir);
+            f_zed_Y = gs_sink_builder("ZED_Y", acq.video_conf->output_dir);
+            f_zed_X = gs_sink_builder("ZED_Z", acq.video_conf->output_dir);
+            string gs_zed_X = gst_1c + f_zed_X;
+            string gs_zed_Y = gst_1c + f_zed_Y;
+            string gs_zed_Z = gst_1c + f_zed_Z;
+            acq.mp4_zed_X.open(gs_zed_X, four_c, 15, zed_frame_size, false);
+            acq.mp4_zed_Y.open(gs_zed_Y, four_c, 15, zed_frame_size, false);
+            acq.mp4_zed_Z.open(gs_zed_Z, four_c, 15, zed_frame_size, false);
         }
     }
 }
@@ -322,33 +340,41 @@ bool connect_ZED(AcquisitionParameters &acq, int fps){
     init_params.camera_resolution = RESOLUTION::HD1080; // Use HD1080 video mode
     init_params.camera_fps = 15; // Set fps
     init_params.depth_mode = DEPTH_MODE::QUALITY;
+    init_params.coordinate_units = UNIT::METER;
+    init_params.depth_minimum_distance = 0.5;
+    init_params.depth_maximum_distance = 8;
+    init_params.depth_stabilization = true;
     ERROR_CODE err = acq.zed.open(init_params);
     acq.zed_connected = err == ERROR_CODE::SUCCESS;
     return acq.zed_connected;
 }
 
 void ZedThread(AcquisitionParameters &acq) {
+    sl::SensorsData sensors_data;
+    sl::Mat zed_gpu_rgb, zed_gpu_depth, zed_gpu_point_cloud;
+    cv::cuda::GpuMat cuda_gpu_rgb, cuda_gpu_gray, cuda_gpu_depth, cuda_gpu_point_cloud;
+    cv::Mat cuda_gray, cuda_depth;
+    std::vector<cuda::GpuMat> cudaXYZ(3);
+    cv::Mat cvXYZ[3];
+    EnumeratedZEDFrame zed_frame;
+    cuda::Stream stream_rgb, stream_depth, stream_pc[3];
+
+    bool first = true;
+    int width = 1920, height = 1080;
+    ERROR_CODE err;
+
     if (acq.debug)
         cout << "ZED THREAD STARTED" << endl;
-    EnumeratedZEDFrame zed_frame;
-    sl::SensorsData sensors_data;
-    sl::Mat zed_depth, zed_gpu_rgb;
-    cv::Mat cv_zed_rgb, cv_zed_depth;
-    cuda::Stream stream_rgb, stream_depth;
-    bool first = true;
-    ERROR_CODE err;
+
     for (int zed_frame_number = 0; acq.is_running; zed_frame_number++) {
         err = acq.zed.grab();
         zed_frame.timestamp = get_current_time();
-        acq.zed.retrieveImage(zed_frame.rgb, VIEW::LEFT);
-        acq.zed.retrieveImage(zed_gpu_rgb, VIEW::LEFT, MEM::GPU);
-        acq.zed.retrieveMeasure(zed_depth, MEASURE::DEPTH, MEM::GPU);
-        int width = 1920, height = 1080;
         if (err != ERROR_CODE::SUCCESS) {
             if (acq.debug)
                 acq.frame_drop_log_file << "ZED FRAME DROP - FRAME NO. " << zed_frame_number << endl;
         }
         if (acq.video_conf->transfer_data) {
+            acq.zed.retrieveImage(zed_frame.rgb, VIEW::LEFT);
             acq.zed.getSensorsData(sensors_data, TIME_REFERENCE::IMAGE);
             acq.zed.retrieveMeasure(zed_frame.point_cloud, MEASURE::XYZ);
             zed_frame.BlockID = zed_frame_number;
@@ -359,29 +385,53 @@ void ZedThread(AcquisitionParameters &acq) {
             acq.imu_log_file << imu.str() << endl << endl;
             acq.jz_streamer.push_zed(zed_frame);
         }
-        if (acq.video_conf->output_zed_mkv) {
-
+        if (acq.video_conf->output_zed_gray) {
+            acq.zed.retrieveImage(zed_gpu_rgb, VIEW::LEFT, MEM::GPU);
             auto rgb_ptr = zed_gpu_rgb.getPtr<sl::uchar1>(MEM::GPU);
-            auto rgb_step = zed_frame.rgb.getStepBytes(MEM::GPU);
-            auto depth_ptr = zed_depth.getPtr<sl::uchar1>(MEM::GPU);
-            auto depth_step = zed_depth.getStepBytes(MEM::GPU);
+            auto rgb_step = zed_gpu_rgb.getStepBytes(MEM::GPU);
 
-            cv::cuda::GpuMat cv_zed_gpu_rgb(height, width, CV_8UC4, rgb_ptr, rgb_step);
-            cv::cuda::cvtColor(cv_zed_gpu_rgb, cv_zed_gpu_rgb, cv::COLOR_RGBA2GRAY, 0, stream_rgb);
+            cuda_gpu_rgb = cuda::GpuMat(height, width, CV_8UC4, rgb_ptr, rgb_step);
+            cv::cuda::cvtColor(cuda_gpu_rgb, cuda_gpu_gray, cv::COLOR_RGBA2GRAY, 0, stream_rgb);
 
-            cv_zed_gpu_rgb.download(cv_zed_rgb, stream_rgb);
-
-            cuda::GpuMat cv_zed_gpu_depth(height, width, CV_32FC1, depth_ptr, depth_step);
-            cuda::min(cv_zed_gpu_depth, 8000.0f, cv_zed_gpu_depth, stream_depth);
-            cv::cuda::multiply(cv_zed_gpu_depth, 255.0f / 8000.0f, cv_zed_gpu_depth, 1, CV_32FC1, stream_depth);
-            cv_zed_gpu_depth.convertTo(cv_zed_gpu_depth, CV_8UC1, stream_depth);
-
-            cv_zed_gpu_depth.download(cv_zed_depth, stream_depth);
+            cuda_gpu_gray.download(cuda_gray, stream_rgb);
 
             stream_rgb.waitForCompletion();
-            acq.mp4_zed_rgb.write(cv_zed_rgb);
+            acq.mp4_zed_rgb.write(cuda_gray);
+        }
+        if (acq.video_conf->output_zed_depth){
+            acq.zed.retrieveMeasure(zed_gpu_depth, MEASURE::DEPTH, MEM::GPU);
+            auto depth_ptr = zed_gpu_depth.getPtr<sl::uchar1>(MEM::GPU);
+            auto depth_step = zed_gpu_depth.getStepBytes(MEM::GPU);
+
+            cuda_gpu_depth = cuda::GpuMat(height, width, CV_32FC1, depth_ptr, depth_step);
+            cuda::min(cuda_gpu_depth, 8.0f, cuda_gpu_depth, stream_depth);
+            cv::cuda::multiply(cuda_gpu_depth, 255.0f / 8.0f, cuda_gpu_depth, 1, CV_32FC1, stream_depth);
+            cuda_gpu_depth.convertTo(cuda_gpu_depth, CV_8UC1, stream_depth);
+
+            cuda_gpu_depth.download(cuda_depth, stream_depth);
+
             stream_depth.waitForCompletion();
-            acq.mp4_zed_depth.write(cv_zed_depth);
+            acq.mp4_zed_depth.write(cuda_depth);
+        }
+        if (acq.video_conf->output_zed_pc){
+            acq.zed.retrieveMeasure(zed_gpu_point_cloud, MEASURE::XYZ, MEM::GPU);
+
+            auto pc_ptr = zed_gpu_point_cloud.getPtr<sl::uchar1>(MEM::GPU);
+            auto pc_step = zed_gpu_point_cloud.getStepBytes(MEM::GPU);
+
+            cuda_gpu_point_cloud = cuda::GpuMat(height, width, CV_32FC3, pc_ptr, pc_step);
+            cv::cuda::split(cuda_gpu_point_cloud, cudaXYZ);
+            for (int i = 0; i < 3; i++) {
+                auto cuda_axis = cudaXYZ[i];
+                cuda::min(cuda_axis, 8.0f, cuda_axis, stream_pc[i]);
+                cv::cuda::multiply(cuda_axis, 255.0f / 8.0f, cuda_axis, 1, CV_32FC1, stream_pc[i]);
+                cuda_axis.convertTo(cuda_axis, CV_8UC1, stream_pc[i]);
+                cuda_axis.download(cvXYZ[i], stream_pc[i]);
+            }
+            for (auto &spc : stream_pc) spc.waitForCompletion();
+            acq.mp4_zed_X.write(cvXYZ[0]);
+            acq.mp4_zed_Y.write(cvXYZ[1]);
+            acq.mp4_zed_Z.write(cvXYZ[2]);
         }
     }
 
@@ -437,9 +487,9 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
             acq.is_running = false;
             acq.jai_connected = false;
             exit(1);
-            cout << stream_index << ": BAD RESULT!" << endl;
-            // Retrieve buffer failure
-            cout << lResult.GetCodeString().GetAscii() << "\n";
+//            cout << stream_index << ": BAD RESULT!" << endl;
+//            // Retrieve buffer failure
+//            cout << lResult.GetCodeString().GetAscii() << "\n";
         }
     }
     if (acq.debug)
@@ -785,9 +835,16 @@ void stop_acquisition(AcquisitionParameters &acq) {
         acq.mp4_975.release();
     if (acq.video_conf->output_svo)
         acq.zed.disableRecording();
-    if (acq.video_conf->output_zed_mkv) {
+    if (acq.video_conf->output_zed_gray) {
         acq.mp4_zed_rgb.release();
+    }
+    if (acq.video_conf->output_zed_depth) {
         acq.mp4_zed_depth.release();
+    }
+    if (acq.video_conf->output_zed_pc) {
+        acq.mp4_zed_X.release();
+        acq.mp4_zed_Y.release();
+        acq.mp4_zed_Z.release();
     }
 
     // Tell the device to stop sending images + disable streaming
