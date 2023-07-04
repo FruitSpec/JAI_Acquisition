@@ -318,7 +318,7 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
         if (acq.video_conf->output_zed_pc){
             f_zed_X = gs_sink_builder("ZED_X", acq.video_conf->output_dir);
             f_zed_Y = gs_sink_builder("ZED_Y", acq.video_conf->output_dir);
-            f_zed_X = gs_sink_builder("ZED_Z", acq.video_conf->output_dir);
+            f_zed_Z = gs_sink_builder("ZED_Z", acq.video_conf->output_dir);
             string gs_zed_X = gst_1c + f_zed_X;
             string gs_zed_Y = gst_1c + f_zed_Y;
             string gs_zed_Z = gst_1c + f_zed_Z;
@@ -341,8 +341,8 @@ bool connect_ZED(AcquisitionParameters &acq, int fps){
     init_params.camera_fps = 15; // Set fps
     init_params.depth_mode = DEPTH_MODE::QUALITY;
     init_params.coordinate_units = UNIT::METER;
-    init_params.depth_minimum_distance = 0.5;
-    init_params.depth_maximum_distance = 8;
+    init_params.depth_minimum_distance = 0.5f;
+    init_params.depth_maximum_distance = 8.0f;
     init_params.depth_stabilization = true;
     ERROR_CODE err = acq.zed.open(init_params);
     acq.zed_connected = err == ERROR_CODE::SUCCESS;
