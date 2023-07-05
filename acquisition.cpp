@@ -301,7 +301,7 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
             acq.mp4_975.open(gs_975, four_c, acq.video_conf->FPS, jai_frame_size, false);
         }
         if (acq.video_conf->output_svo) {
-            sprintf(zed_filename, (acq.video_conf->output_dir + string("/ZED_%d.svo")).c_str(), acq.video_conf->file_index);
+            sprintf(zed_filename, (acq.video_conf->output_dir + string("/ZED.svo"));
             RecordingParameters params(zed_filename, SVO_COMPRESSION_MODE::H265);
             acq.zed.enableRecording(params);
         }
