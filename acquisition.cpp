@@ -246,7 +246,7 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
     string f_fsi_clahe, f_fsi_equalize_hist, f_rgb, f_800, f_975, f_zed_rgb, f_zed_depth, f_zed_X, f_zed_Y, f_zed_Z;
     string width_s, height_s, FPS_s, file_index_s;
     string frame_drop_log_path, imu_log_path, jai_acquisition_log_path;
-    char zed_filename[100];
+    string zed_svo_filename;
 
     acq.video_conf->file_index = - 1;
     if (acq.video_conf->output_clahe_fsi or acq.video_conf->output_equalize_hist_fsi or acq.video_conf->output_rgb or acq.video_conf->output_800 or acq.video_conf->output_975)
@@ -301,8 +301,8 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
             acq.mp4_975.open(gs_975, four_c, acq.video_conf->FPS, jai_frame_size, false);
         }
         if (acq.video_conf->output_svo) {
-            sprintf(zed_filename, (acq.video_conf->output_dir + string("/ZED.svo"));
-            RecordingParameters params(zed_filename, SVO_COMPRESSION_MODE::H265);
+            zed_svo_filename = (acq.video_conf->output_dir + string("/ZED.svo"));
+            RecordingParameters params(zed_svo_filename.c_str(), SVO_COMPRESSION_MODE::H265);
             acq.zed.enableRecording(params);
         }
         if (acq.video_conf->output_zed_gray) {
