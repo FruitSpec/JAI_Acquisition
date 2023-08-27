@@ -45,14 +45,16 @@ public:
 
     py::array_t<uint8_t> get_np_point_cloud();
 
+    py::array_t<uint8_t> get_np_depth();
+
     py::array_t<uint8_t> get_np_rgb();
 
     SensorsData::IMUData get_imu_data();
 
 private:
     EnumeratedZEDFrame e_frame;
-    py::array_t<uint8_t> np_point_cloud, np_rgb;
-    bool retrieved_point_cloud{}, retrieved_rgb{};
+    py::array_t<uint8_t> np_point_cloud, np_depth, np_rgb;
+    bool retrieved_point_cloud{}, retrieved_depth{}, retrieved_rgb{};
 };
 
 class JaiZed {

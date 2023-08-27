@@ -26,7 +26,7 @@ struct EnumeratedJAIFrame {
 
 struct EnumeratedZEDFrame {
     string timestamp;
-    sl::Mat point_cloud, rgb;
+    sl::Mat point_cloud, depth, rgb;
     sl::SensorsData::IMUData imu;
     int BlockID;
 };

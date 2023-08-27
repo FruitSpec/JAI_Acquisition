@@ -377,6 +377,7 @@ void ZedThread(AcquisitionParameters &acq) {
             acq.zed.retrieveImage(zed_frame.rgb, VIEW::LEFT);
             acq.zed.getSensorsData(sensors_data, TIME_REFERENCE::IMAGE);
             acq.zed.retrieveMeasure(zed_frame.point_cloud, MEASURE::XYZ);
+            acq.zed.retrieveMeasure(zed_frame.depth, MEASURE::DEPTH);
             zed_frame.BlockID = zed_frame_number;
             zed_frame.imu = sensors_data.imu;
             std::stringstream imu;

@@ -71,6 +71,17 @@ py::array_t<uint8_t> EnumeratedZEDFrameWrapper::get_np_point_cloud(){
     return this->np_point_cloud;
 }
 
+py::array_t<uint8_t> EnumeratedZEDFrameWrapper::get_np_depth(){
+    if (not this->retrieved_point_cloud) {
+        this->retrieved_point_cloud = true;
+        int rows = this->e_frame.depth.getHeight();
+        int cols = this->e_frame.depth.getWidth();
+        int channels = this->e_frame.depth.getChannels();
+        this->np_depth = py::array_t<uint8_t>({rows, cols, channels}, this->e_frame.point_cloud.getPtr<uint8_t>());
+    }
+    return this->np_depth;
+}
+
 py::array_t<uint8_t> EnumeratedZEDFrameWrapper::get_np_rgb(){
     if (not this->retrieved_rgb) {
         this->retrieved_rgb = true;
@@ -186,6 +197,7 @@ PYBIND11_MODULE(jaized, m) {
             .def_property_readonly("timestamp", &EnumeratedZEDFrameWrapper::get_timestamp)
             .def_property_readonly("rgb", &EnumeratedZEDFrameWrapper::get_np_rgb)
             .def_property_readonly("point_cloud", &EnumeratedZEDFrameWrapper::get_np_point_cloud)
+            .def_property_readonly("depth", &EnumeratedZEDFrameWrapper::get_np_depth)
             .def_property_readonly("imu", &EnumeratedZEDFrameWrapper::get_imu_data)
             .def_property_readonly("frame_number", &EnumeratedZEDFrameWrapper::get_frame_number);
 
