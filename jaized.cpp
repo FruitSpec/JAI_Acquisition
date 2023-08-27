@@ -104,17 +104,23 @@ bool JaiZed::connect_jai_wrapper() {
     return acq_.jai_connected;
 }
 
-bool JaiZed::connect_zed_wrapper(short fps) {
+bool JaiZed::connect_zed_wrapper(short fps, short exposure_rgb, short exposure_800, short exposure_975,
+                                 const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
+                                 bool output_rgb, bool output_800, bool output_975, bool output_svo,
+                                 bool output_zed_gray, bool output_zed_depth, bool output_zed_pc, bool view,
+                                 bool transfer_data, bool pass_clahe_stream, bool debug_mode) {
     acq_.zed_connected = connect_ZED(acq_, fps);
+
+    acq_.video_conf = parse_streaming_args(fps, exposure_rgb, exposure_800, exposure_975,
+                                           transfer_data, pass_clahe_stream, debug_mode);
+
     return acq_.zed_connected;
 }
 
-bool JaiZed::start_acquisition_wrapper(short fps, short exposure_rgb, short exposure_800, short exposure_975,
-                                       const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
+bool JaiZed::start_acquisition_wrapper(const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
                                        bool output_rgb, bool output_800, bool output_975, bool output_svo,
-                                       bool output_zed_gray, bool output_zed_depth, bool output_zed_pc, bool view,
-                                       bool transfer_data, bool pass_clahe_stream, bool debug_mode) {
-    acq_.video_conf = parse_args(fps, exposure_rgb, exposure_800, exposure_975,
+                                       bool output_zed_gray, bool output_zed_depth, bool output_zed_pc) {
+    parse_args acq_.video_conf = parse_args(fps, exposure_rgb, exposure_800, exposure_975,
                                  output_dir, output_clahe_fsi, output_equalize_hist_fsi, output_rgb, output_800,
                                  output_975, output_svo, output_zed_gray, output_zed_depth, output_zed_pc,
                                  view, transfer_data, pass_clahe_stream, debug_mode);

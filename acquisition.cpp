@@ -119,17 +119,30 @@ void FreeStreamBuffers(BufferList *aBufferList) {
     aBufferList->clear();
 }
 
-VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, short exposure_975,
-                         const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
-                         bool output_rgb, bool output_800, bool output_975, bool output_svo, bool output_zed_gray,
-                         bool output_zed_depth, bool output_zed_pc, bool view, bool transfer_data,
-                         bool pass_clahe_stream, bool debug_mode) {
+VideoConfig * parse_streaming_args(short fps, short exposure_rgb, short exposure_800, short exposure_975,
+                         bool transfer_data, bool pass_clahe_stream, bool debug_mode) {
     auto *video_conf = new VideoConfig;
 
     video_conf->FPS = fps;
     video_conf->exposure_rgb = exposure_rgb;
     video_conf->exposure_800 = exposure_800;
     video_conf->exposure_975 = exposure_975;
+    video_conf->transfer_data = transfer_data;
+    video_conf->pass_clahe_stream = pass_clahe_stream;
+
+    if (debug_mode) {
+        std::cout << "FPS: " << video_conf->FPS << std::endl;
+        std::cout << "transfer-data: " << std::boolalpha << video_conf->transfer_data << std::endl;
+        std::cout << "pass-clahe: " << std::boolalpha << video_conf->pass_clahe << std::endl;
+    }
+
+    return video_conf;
+}
+
+void parse_video_file_args(VideoConfig *video_conf, const string& output_dir, bool output_clahe_fsi,
+                           bool output_equalize_hist_fsi, bool output_rgb, bool output_800, bool output_975,
+                           bool output_svo, bool output_zed_gray, bool output_zed_depth, bool output_zed_pc) {
+
     video_conf->output_dir = output_dir;
     video_conf->output_clahe_fsi = output_clahe_fsi;
     video_conf->output_equalize_hist_fsi = output_equalize_hist_fsi;
