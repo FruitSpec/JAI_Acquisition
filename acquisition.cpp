@@ -852,7 +852,7 @@ void stop_acquisition(AcquisitionParameters &acq) {
     acq.lDevice->StreamDisable();
 
     if (acq.debug)
-        cout << "ACQUISITION STOPPED SUCCESFULY" << endl;
+        cout << "ACQUISITION STOPPED SUCCESSFULLY" << endl;
 
 }
 
