@@ -449,10 +449,9 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
 
     pthread_mutex_lock(&acq.acq_start_mtx);
     pthread_cond_wait(&acq.GrabEvent, &acq.acq_start_mtx);
-    pthread_mutex_unlock(&(acq.acq_start_mtx));
+    pthread_mutex_unlock(&acq.acq_start_mtx);
     if (acq.debug)
         cout << "JAI STREAM " << stream_index << " STARTED" << endl;
-//    short cv_bit_depth = stream_index == 0 ? CV_8U : CV_16U;
     short cv_bit_depth = CV_8U;
     while (acq.is_running) {
         PvBuffer *lBuffer = nullptr;
@@ -487,10 +486,11 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
         } else if (acq.debug) {
             acq.is_running = false;
             acq.jai_connected = false;
-            exit(1);
-//            cout << stream_index << ": BAD RESULT!" << endl;
-//            // Retrieve buffer failure
-//            cout << lResult.GetCodeString().GetAscii() << "\n";
+            if (acq.debug) {
+                cout << stream_index << ": BAD RESULT!" << endl;
+                // Retrieve buffer failure
+                cout << lResult.GetCodeString().GetAscii() << "\n";
+            }
         }
     }
     if (acq.debug)

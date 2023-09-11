@@ -30,9 +30,16 @@ void JaiZedStream::push_zed(EnumeratedZEDFrame &zed_frame) {
 }
 
 EnumeratedJAIFrame JaiZedStream::pop_jai() {
+    struct timespec max_wait = {0, 0};
     pthread_mutex_lock(&jai_mutex);
     if (jai_frames.empty()) {
-        pthread_cond_wait(&jai_cv, &jai_mutex);
+        clock_gettime(CLOCK_REALTIME, &max_wait);
+        max_wait.tv_sec += 1;
+        const int timed_wait_rv = pthread_cond_timedwait(&jai_cv, &jai_mutex, &max_wait);
+    }
+    if (!acq.is_runing) {
+        for (int i = 0; i < 100; i++)
+            cout << "ACQ IS NOT RUNNING BUT ASKED FOR JAI FRAME!!!" << endl;
     }
     EnumeratedJAIFrame frame = jai_frames.front();
     jai_frames.pop();
@@ -41,9 +48,16 @@ EnumeratedJAIFrame JaiZedStream::pop_jai() {
 }
 
 EnumeratedZEDFrame JaiZedStream::pop_zed() {
+    struct timespec max_wait = {0, 0};
     pthread_mutex_lock(&zed_mutex);
     if (zed_frames.empty()) {
-        pthread_cond_wait(&zed_cv, &zed_mutex);
+        clock_gettime(CLOCK_REALTIME, &max_wait);
+        max_wait.tv_sec += 1;
+        const int timed_wait_rv = pthread_cond_timedwait(&zed_cv, &zed_mutex, &max_wait);
+    }
+    if (!acq.is_runing) {
+        for (int i = 0; i < 100; i++)
+            cout << "ACQ IS NOT RUNNING BUT ASKED FOR ZED FRAME!!!" << endl;
     }
     EnumeratedZEDFrame frame = zed_frames.front();
     zed_frames.pop();
