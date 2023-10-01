@@ -59,6 +59,8 @@ struct VideoConfig {
     bool transfer_data;
     bool pass_clahe_stream;
     string output_dir = string("/home/mic-730ai/Desktop/JAI_Results");
+    PvString *alc_true_areas;
+    PvString *alc_false_areas;
 };
 
 struct AcquisitionParameters {

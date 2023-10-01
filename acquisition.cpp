@@ -123,7 +123,8 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
                          const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
                          bool output_rgb, bool output_800, bool output_975, bool output_svo, bool output_zed_gray,
                          bool output_zed_depth, bool output_zed_pc, bool view, bool transfer_data,
-                         bool pass_clahe_stream, bool debug_mode) {
+                         bool pass_clahe_stream, bool debug_mode, const PvString* alc_true_areas,
+                         const PvString* alc_false_areas) {
     auto *video_conf = new VideoConfig;
 
     video_conf->FPS = fps;
@@ -143,7 +144,8 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
     video_conf->view = view;
     video_conf->transfer_data = transfer_data;
     video_conf->pass_clahe_stream = pass_clahe_stream;
-
+    video_conf->alc_true_areas = alc_true_areas;
+    video_conf->alc_false_areas = alc_false_areas;
 
     if (debug_mode) {
         std::cout << "FPS: " << video_conf->FPS << std::endl;
@@ -167,13 +169,13 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
 }
 
 void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvString& source, int auto_exposure_max,
-                               const PvString &pixel_format){
-    const PvString alc_true_areas[4] = {"HighMidLeft", "LowMidLeft", "MidHighMidLeft", "MidLowMidLeft"};
-    const PvString alc_false_areas[12] = {"HighRight", "HighMidRight", "HighLeft",
-                                         "MidHighRight", "MidHighMidRight", "MidHighLeft",
-                                         "MidLowRight", "MidLowMidRight", "MidLowLeft",
-                                         "LowRight", "LowMidRight", "LowLeft"
-    };
+                               const PvString &pixel_format, const PvString* alc_true_areas, const PvString* alc_false_areas){
+//    const PvString alc_true_areas[4] = {"HighMidLeft", "LowMidLeft", "MidHighMidLeft", "MidLowMidLeft"};
+//    const PvString alc_false_areas[12] = {"HighRight", "HighMidRight", "HighLeft",
+//                                         "MidHighRight", "MidHighMidRight", "MidHighLeft",
+//                                         "MidLowRight", "MidLowMidRight", "MidLowLeft",
+//                                         "LowRight", "LowMidRight", "LowLeft"
+//    };
 
     lDeviceParams->SetEnumValue("SourceSelector", source);
     lDeviceParams->SetEnumValue("PixelFormat", pixel_format);
@@ -199,9 +201,12 @@ void set_acquisition_parameters(AcquisitionParameters &acq) {
     const PvString source_0 = "Source0", source_1 = "Source1", source_2 = "Source2";
     const PvString color = "BayerRG8", mono = "Mono8";
 
-    set_parameters_per_source(lDeviceParams, source_0, acq.video_conf->exposure_rgb, color);
-    set_parameters_per_source(lDeviceParams, source_1, acq.video_conf->exposure_800, mono);
-    set_parameters_per_source(lDeviceParams, source_2, acq.video_conf->exposure_975, mono);
+    set_parameters_per_source(lDeviceParams, source_0, acq.video_conf->exposure_rgb, color,
+                              acq.video_conf->alc_true_areas, acq.video_conf->alc_false_areas);
+    set_parameters_per_source(lDeviceParams, source_1, acq.video_conf->exposure_800, mono,
+                              acq.video_conf->alc_true_areas, acq.video_conf->alc_false_areas);
+    set_parameters_per_source(lDeviceParams, source_2, acq.video_conf->exposure_975, mono,
+                              acq.video_conf->alc_true_areas, acq.video_conf->alc_false_areas);
 
     lDeviceParams->SetFloatValue("AcquisitionFrameRate", acq.video_conf->FPS);
     lDeviceParams->GetIntegerValue("Width", acq.video_conf->width);
@@ -449,10 +454,9 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
 
     pthread_mutex_lock(&acq.acq_start_mtx);
     pthread_cond_wait(&acq.GrabEvent, &acq.acq_start_mtx);
-    pthread_mutex_unlock(&(acq.acq_start_mtx));
+    pthread_mutex_unlock(&acq.acq_start_mtx);
     if (acq.debug)
         cout << "JAI STREAM " << stream_index << " STARTED" << endl;
-//    short cv_bit_depth = stream_index == 0 ? CV_8U : CV_16U;
     short cv_bit_depth = CV_8U;
     while (acq.is_running) {
         PvBuffer *lBuffer = nullptr;
@@ -487,10 +491,11 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
         } else if (acq.debug) {
             acq.is_running = false;
             acq.jai_connected = false;
-            exit(1);
-//            cout << stream_index << ": BAD RESULT!" << endl;
-//            // Retrieve buffer failure
-//            cout << lResult.GetCodeString().GetAscii() << "\n";
+            if (acq.debug) {
+                cout << stream_index << ": BAD RESULT!" << endl;
+                // Retrieve buffer failure
+                cout << lResult.GetCodeString().GetAscii() << "\n";
+            }
         }
     }
     if (acq.debug)
@@ -624,8 +629,6 @@ void MergeThread(AcquisitionParameters &acq) {
             continue;
         }
 
-        auto start = std::chrono::system_clock::now();
-
         cv::Mat res_clahe_fsi, res_equalize_hist_fsi;
         // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV refers to it as BayerBG
         // for more info look at - https://github.com/opencv/opencv/issues/19629
@@ -701,9 +704,6 @@ void MergeThread(AcquisitionParameters &acq) {
             streams[1].waitForCompletion();
             acq.mp4_975.write(Frames[2]);
         }
-        auto end = std::chrono::system_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-//        std::cout << "Elapsed time: " << elapsed.count() << " ms" << endl;
     }
 
     if (acq.debug)
