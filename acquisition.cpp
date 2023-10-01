@@ -703,7 +703,6 @@ void MergeThread(AcquisitionParameters &acq) {
         }
         auto end = std::chrono::system_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-//        std::cout << "Elapsed time: " << elapsed.count() << " ms" << endl;
     }
 
     if (acq.debug)
