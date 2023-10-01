@@ -362,7 +362,6 @@ void ZedThread(AcquisitionParameters &acq) {
     std::vector<cuda::GpuMat> cudaXYZ(3);
     cv::Mat cvXYZ[3];
     EnumeratedZEDFrame zed_frame;
-    cuda::Stream stream_rgb, stream_depth, stream_pc[3];
 
     bool first = true;
     int width = 1920, height = 1080;
@@ -397,11 +396,10 @@ void ZedThread(AcquisitionParameters &acq) {
             auto rgb_step = zed_gpu_rgb.getStepBytes(MEM::GPU);
 
             cuda_gpu_rgb = cuda::GpuMat(height, width, CV_8UC4, rgb_ptr, rgb_step);
-            cv::cuda::cvtColor(cuda_gpu_rgb, cuda_gpu_gray, cv::COLOR_RGBA2GRAY, 0, stream_rgb);
+            cv::cuda::cvtColor(cuda_gpu_rgb, cuda_gpu_gray, cv::COLOR_RGBA2GRAY, 0);
 
-            cuda_gpu_gray.download(cuda_gray, stream_rgb);
+            cuda_gpu_gray.download(cuda_gray);
 
-            stream_rgb.waitForCompletion();
             acq.mp4_zed_rgb.write(cuda_gray);
         }
         if (acq.video_conf->output_zed_depth){
@@ -410,13 +408,12 @@ void ZedThread(AcquisitionParameters &acq) {
             auto depth_step = zed_gpu_depth.getStepBytes(MEM::GPU);
 
             cuda_gpu_depth = cuda::GpuMat(height, width, CV_32FC1, depth_ptr, depth_step);
-            cuda::min(cuda_gpu_depth, 8.0f, cuda_gpu_depth, stream_depth);
-            cv::cuda::multiply(cuda_gpu_depth, 255.0f / 8.0f, cuda_gpu_depth, 1, CV_32FC1, stream_depth);
-            cuda_gpu_depth.convertTo(cuda_gpu_depth, CV_8UC1, stream_depth);
+            cuda::min(cuda_gpu_depth, 8.0f, cuda_gpu_depth);
+            cv::cuda::multiply(cuda_gpu_depth, 255.0f / 8.0f, cuda_gpu_depth, 1, CV_32FC1);
+            cuda_gpu_depth.convertTo(cuda_gpu_depth, CV_8UC1);
 
-            cuda_gpu_depth.download(cuda_depth, stream_depth);
+            cuda_gpu_depth.download(cuda_depth);
 
-            stream_depth.waitForCompletion();
             acq.mp4_zed_depth.write(cuda_depth);
         }
         if (acq.video_conf->output_zed_pc){
@@ -429,12 +426,11 @@ void ZedThread(AcquisitionParameters &acq) {
             cv::cuda::split(cuda_gpu_point_cloud, cudaXYZ);
             for (int i = 0; i < 3; i++) {
                 auto cuda_axis = cudaXYZ[i];
-                cuda::min(cuda_axis, 8.0f, cuda_axis, stream_pc[i]);
-                cv::cuda::multiply(cuda_axis, 255.0f / 8.0f, cuda_axis, 1, CV_32FC1, stream_pc[i]);
-                cuda_axis.convertTo(cuda_axis, CV_8UC1, stream_pc[i]);
-                cuda_axis.download(cvXYZ[i], stream_pc[i]);
+                cuda::min(cuda_axis, 8.0f, cuda_axis);
+                cv::cuda::multiply(cuda_axis, 255.0f / 8.0f, cuda_axis, 1, CV_32FC1);
+                cuda_axis.convertTo(cuda_axis, CV_8UC1);
+                cuda_axis.download(cvXYZ[i]);
             }
-            for (auto &spc : stream_pc) spc.waitForCompletion();
             acq.mp4_zed_X.write(cvXYZ[0]);
             acq.mp4_zed_Y.write(cvXYZ[1]);
             acq.mp4_zed_Z.write(cvXYZ[2]);
@@ -502,7 +498,7 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
         cout << stream_index << ": Acquisition end with " << CurrentBlockID << endl;
 }
 
-void stretch(cuda::GpuMat& channel, cuda::Stream &stream, double lower = 0.005, double upper = 0.995, double min_int = 25, double max_int = 235) {
+void stretch(cuda::GpuMat& channel, double lower = 0.005, double upper = 0.995, double min_int = 25, double max_int = 235) {
     const int hist_size = 256;
     int lower_threshold = 0, upper_threshold = 255;
     double percentile = 0.0;
@@ -510,13 +506,11 @@ void stretch(cuda::GpuMat& channel, cuda::Stream &stream, double lower = 0.005, 
     cuda::GpuMat gpu_hist;
     cv::Mat cpu_hist;
 
-    cuda::calcHist(channel, gpu_hist, stream);
-    gpu_hist.download(cpu_hist, stream);
+    cuda::calcHist(channel, gpu_hist);
+    gpu_hist.download(cpu_hist);
     cv::Scalar total = cuda::sum(gpu_hist);
 
     // Calculate lower and upper threshold indices for gain
-    
-    stream.waitForCompletion();
 
     for (int i = 0; i < hist_size; i++) {
         percentile += cpu_hist.at<int>(0, i) / total[0];
@@ -538,44 +532,38 @@ void stretch(cuda::GpuMat& channel, cuda::Stream &stream, double lower = 0.005, 
     double gain = (max_int - min_int) / (upper_threshold - lower_threshold);
     double offset = min_int;
 
-    cuda::multiply(channel, gain, channel, 1, -1, stream);
-    cuda::add(channel, offset, channel, noArray(), -1, stream);
+    cuda::multiply(channel, gain, channel, 1, -1);
+    cuda::add(channel, offset, channel, noArray(), -1);
 
     cv::Scalar lower_scalar(0);
     cv::Scalar upper_scalar(255);
 
     // Clipping to range [0, 255]
-    cv::cuda::max(lower_scalar, channel, channel, stream);
-    cv::cuda::min(upper_scalar, channel, channel, stream);
+    cv::cuda::max(lower_scalar, channel, channel);
+    cv::cuda::min(upper_scalar, channel, channel);
 }
 
-void stretch_and_clahe(cuda::GpuMat& channel, cuda::Stream &stream, const Ptr<cuda::CLAHE>& clahe, double lower = 0.005, double upper = 0.995, double min_int = 25,
+void stretch_and_clahe(cuda::GpuMat& channel, const Ptr<cuda::CLAHE>& clahe, double lower = 0.005, double upper = 0.995, double min_int = 25,
                        double max_int = 235) {
-    stretch(channel, stream, lower, upper, min_int, max_int);
-    clahe->apply(channel, channel, stream);
+    stretch(channel, lower, upper, min_int, max_int);
+    clahe->apply(channel, channel);
 }
 
-void fsi_from_channels(const cv::Ptr<cuda::CLAHE>& clahe, cuda::GpuMat& blue, cuda::Stream &stream_blue,
-                       cuda::GpuMat& c_800, cuda::Stream &stream_800, cuda::GpuMat& c_975, cuda::Stream &stream_975,
-                       cuda::GpuMat &fsi, cuda::Stream &stream_fsi, double lower = 0.005, double upper = 0.995,
+void fsi_from_channels(const cv::Ptr<cuda::CLAHE>& clahe, cuda::GpuMat& blue, cuda::GpuMat& c_800,
+                       cuda::GpuMat& c_975, cuda::GpuMat &fsi, double lower = 0.005, double upper = 0.995,
                        double min_int = 25, double max_int = 235) {
     
-    stretch_and_clahe(blue, stream_blue, clahe, lower, upper, min_int, max_int);
-    stretch_and_clahe(c_800, stream_800, clahe, lower, upper, min_int, max_int);
-    stretch_and_clahe(c_975, stream_975, clahe, lower, upper, min_int, max_int);
+    stretch_and_clahe(blue, clahe, lower, upper, min_int, max_int);
+    stretch_and_clahe(c_800, clahe, lower, upper, min_int, max_int);
+    stretch_and_clahe(c_975, clahe, lower, upper, min_int, max_int);
 
     std::vector<cv::cuda::GpuMat> channels;
     
-    stream_blue.waitForCompletion();
     channels.push_back(blue);
-    
-    stream_800.waitForCompletion();
     channels.push_back(c_800);
-    
-    stream_975.waitForCompletion();
     channels.push_back(c_975);
 
-    cuda::merge(channels, fsi, stream_fsi);
+    cuda::merge(channels, fsi);
 }
 
 void MergeThread(AcquisitionParameters &acq) {
@@ -583,7 +571,6 @@ void MergeThread(AcquisitionParameters &acq) {
     cv::Mat Frames[3], res;
     cuda::GpuMat cudaFSI_clahe, cudaFSI_equalized_hist;
     std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3), cudaFrames_equalized(3);
-    cuda::Stream streams[3], stream_fsi_equalize_hist, stream_fsi_clahe;
     int frame_count = 0;
     struct timespec max_wait = {0, 0};
     SingleJAIChannel *e_frames[3] = {new SingleJAIChannel, new SingleJAIChannel, new SingleJAIChannel};
@@ -633,34 +620,34 @@ void MergeThread(AcquisitionParameters &acq) {
         // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV refers to it as BayerBG
         // for more info look at - https://github.com/opencv/opencv/issues/19629
 
-        cudaFrames[0].upload(Frames[0], streams[0]); // channel 0 = BayerBG8
-        cudaFrames[2].upload(Frames[1], streams[2]); // channel 1 = 800nm -> Red
-        cudaFrames[1].upload(Frames[2], streams[1]); // channel 2 = 975nm -> Green
+        cudaFrames[0].upload(Frames[0]); // channel 0 = BayerBG8
+        cudaFrames[2].upload(Frames[1]); // channel 1 = 800nm -> Red
+        cudaFrames[1].upload(Frames[2]); // channel 2 = 975nm -> Green
 
-        cv::cuda::demosaicing(cudaFrames[0], cudaFrames[0], cv::COLOR_BayerBG2BGR, -1, streams[0]);
+        cv::cuda::demosaicing(cudaFrames[0], cudaFrames[0], cv::COLOR_BayerBG2BGR, -1);
         if (acq.video_conf->output_rgb)
-            cudaFrames[0].download(Frames[0], streams[0]);
-        cv::cuda::split(cudaFrames[0], cudaBGR, streams[0]);
+            cudaFrames[0].download(Frames[0]);
+        cv::cuda::split(cudaFrames[0], cudaBGR);
         cudaFrames[0] = cudaBGR[2]; // just pick the blue from the bayer
         for (int i = 0; i < 3; i++) {
-            cv::cuda::normalize(cudaFrames[i], cudaFrames[i], 0, 255, cv::NORM_MINMAX, CV_8U, noArray(), streams[i]);
+            cv::cuda::normalize(cudaFrames[i], cudaFrames[i], 0, 255, cv::NORM_MINMAX, CV_8U, noArray());
         }
         if (acq.video_conf->output_800)
-            cudaFrames[2].download(Frames[1], streams[2]);
+            cudaFrames[2].download(Frames[1]);
         if (acq.video_conf->output_975)
-            cudaFrames[1].download(Frames[2], streams[1]);
+            cudaFrames[1].download(Frames[2]);
 
         if (acq.video_conf->output_equalize_hist_fsi or (not acq.video_conf->pass_clahe_stream)) {
             for (int i = 0; i < 3; i++) {
-                cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i], streams[i]);
+                cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
             }
             
-            cv::cuda::merge(cudaFrames_equalized, cudaFSI_equalized_hist, stream_fsi_equalize_hist);
-            cudaFSI_equalized_hist.download(res_equalize_hist_fsi, stream_fsi_equalize_hist);
+            cv::cuda::merge(cudaFrames_equalized, cudaFSI_equalized_hist);
+            cudaFSI_equalized_hist.download(res_equalize_hist_fsi);
         }
         if (acq.video_conf->output_clahe_fsi or acq.video_conf->pass_clahe_stream) {
-            fsi_from_channels(clahe, cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2], cudaFSI_clahe, stream_fsi_clahe);
-            cudaFSI_clahe.download(res_clahe_fsi, stream_fsi_clahe);
+            fsi_from_channels(clahe, cudaFrames[0], cudaFrames[1], cudaFrames[2], cudaFSI_clahe);
+            cudaFSI_clahe.download(res_clahe_fsi);
         }
 
         string timestamp = e_frames[0]->timestamp;
@@ -671,10 +658,8 @@ void MergeThread(AcquisitionParameters &acq) {
         EnumeratedJAIFrame e_frame_fsi;
         if (acq.video_conf->transfer_data) {
             if (acq.video_conf->pass_clahe_stream) {
-                stream_fsi_clahe.waitForCompletion();
                 e_frame_fsi = {timestamp, res_clahe_fsi, Frames[0], BlockID};
             } else {
-                stream_fsi_equalize_hist.waitForCompletion();
                 e_frame_fsi = {timestamp, res_equalize_hist_fsi, Frames[0], BlockID};
             }
         }
@@ -685,23 +670,18 @@ void MergeThread(AcquisitionParameters &acq) {
             cout << endl << frame_count / (acq.video_conf->FPS * 60.0) << " minutes of video written" << endl << endl;
 
         if (acq.video_conf->output_clahe_fsi) {
-            stream_fsi_clahe.waitForCompletion();
             acq.mp4_clahe_FSI.write(res_clahe_fsi);
         }
         if (acq.video_conf->output_equalize_hist_fsi) {
-            stream_fsi_equalize_hist.waitForCompletion();
             acq.mp4_equalize_hist_FSI.write(res_equalize_hist_fsi);
         }
         if (acq.video_conf->output_rgb) {
-            streams[0].waitForCompletion();
             acq.mp4_BGR.write(Frames[0]);
         }
         if (acq.video_conf->output_800) {
-            streams[2].waitForCompletion();
             acq.mp4_800.write(Frames[1]);
         }
         if (acq.video_conf->output_975) {
-            streams[1].waitForCompletion();
             acq.mp4_975.write(Frames[2]);
         }
     }
