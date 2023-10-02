@@ -125,7 +125,7 @@ bool JaiZed::start_acquisition_wrapper(short fps, short exposure_rgb, short expo
                                        bool output_rgb, bool output_800, bool output_975, bool output_svo,
                                        bool output_zed_gray, bool output_zed_depth, bool output_zed_pc, bool view,
                                        bool transfer_data, bool pass_clahe_stream, bool debug_mode,
-                                       const PvString* alc_true_areas, const PvString* alc_false_areas) {
+                                       std::vector<PvString> alc_true_areas, std::vector<PvString> alc_false_areas) {
     acq_.video_conf = parse_args(fps, exposure_rgb, exposure_800, exposure_975,
                                  output_dir, output_clahe_fsi, output_equalize_hist_fsi, output_rgb, output_800,
                                  output_975, output_svo, output_zed_gray, output_zed_depth, output_zed_pc,
