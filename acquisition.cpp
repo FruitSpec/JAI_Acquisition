@@ -123,8 +123,8 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
                          const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
                          bool output_rgb, bool output_800, bool output_975, bool output_svo, bool output_zed_gray,
                          bool output_zed_depth, bool output_zed_pc, bool view, bool transfer_data,
-                         bool pass_clahe_stream, bool debug_mode, const PvString* alc_true_areas,
-                         const PvString* alc_false_areas) {
+                         bool pass_clahe_stream, bool debug_mode, PvString* alc_true_areas,
+                         PvString* alc_false_areas) {
     auto *video_conf = new VideoConfig;
 
     video_conf->FPS = fps;
