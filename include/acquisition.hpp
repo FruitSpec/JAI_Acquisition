@@ -17,13 +17,15 @@
 #include <PvStreamU3V.h>
 #include <PvBuffer.h>
 #include <PvBufferWriter.h>
-#include <list>
 #include <PvDisplayWnd.h>
+#include <list>
 #include <map>
 #include <iostream>
 #include <ctime>
 #include <cstdio>
 #include <thread>
+#include <atomic>
+#include <memory>
 #include <sl/Camera.hpp>
 #include <fstream>
 #include <mntent.h>
@@ -59,8 +61,8 @@ struct VideoConfig {
     bool transfer_data;
     bool pass_clahe_stream;
     string output_dir = string("/home/mic-730ai/Desktop/JAI_Results");
-    PvString *alc_true_areas;
-    PvString *alc_false_areas;
+    std::vector<PvString> alc_true_areas;
+    std::vector<PvString> alc_false_areas;
 };
 
 struct AcquisitionParameters {
@@ -99,7 +101,8 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
                          const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
                          bool output_rgb, bool output_800, bool output_975, bool output_svo, bool output_zed_gray,
                          bool output_zed_depth, bool output_zed_pc, bool view, bool transfer_data,
-                         bool pass_clahe_stream, bool debug_mode);
+                         bool pass_clahe_stream, bool debug_mode, std::vector<PvString> alc_true_areas,
+                         std::vector<PvString> alc_false_areas);
 
 void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvString& source, int auto_exposure_max,
                                const PvString &pixel_format);
