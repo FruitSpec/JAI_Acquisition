@@ -186,13 +186,13 @@ void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvStri
     lDeviceParams->SetBooleanValue("ALCAreaEnableAll", false);
 
     for (const string& alc_true_area : alc_true_areas) {
-        PvString pv_alc_true_area = PvString(alc_true_area);
+        PvString pv_alc_true_area = PvString(alc_true_area.c_str());
         lDeviceParams->SetEnumValue("ALCAreaSelector", pv_alc_true_area);
         lDeviceParams->SetBooleanValue("ALCAreaEnable", true);
     }
 
     for (const string& alc_false_area : alc_false_areas) {
-        PvString pv_alc_false_area = PvString(alc_false_area);
+        PvString pv_alc_false_area = PvString(alc_false_area.c_str());
         lDeviceParams->SetEnumValue("ALCAreaSelector", pv_alc_false_area);
         lDeviceParams->SetBooleanValue("ALCAreaEnable", false);
     }
