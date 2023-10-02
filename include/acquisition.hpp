@@ -17,13 +17,15 @@
 #include <PvStreamU3V.h>
 #include <PvBuffer.h>
 #include <PvBufferWriter.h>
-#include <list>
 #include <PvDisplayWnd.h>
+#include <list>
 #include <map>
 #include <iostream>
 #include <ctime>
 #include <cstdio>
 #include <thread>
+#include <atomic>
+#include <memory>
 #include <sl/Camera.hpp>
 #include <fstream>
 #include <mntent.h>
