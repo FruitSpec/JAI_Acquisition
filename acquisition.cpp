@@ -171,13 +171,6 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
 void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvString& source, int auto_exposure_max,
                                const PvString &pixel_format, std::vector<string> alc_true_areas,
                                std::vector<string> alc_false_areas){
-//    const PvString alc_true_areas[4] = {"HighMidLeft", "LowMidLeft", "MidHighMidLeft", "MidLowMidLeft"};
-//    const PvString alc_false_areas[12] = {"HighRight", "HighMidRight", "HighLeft",
-//                                         "MidHighRight", "MidHighMidRight", "MidHighLeft",
-//                                         "MidLowRight", "MidLowMidRight", "MidLowLeft",
-//                                         "LowRight", "LowMidRight", "LowLeft"
-//    };
-
     lDeviceParams->SetEnumValue("SourceSelector", source);
     lDeviceParams->SetEnumValue("PixelFormat", pixel_format);
 
@@ -231,14 +224,12 @@ bool setup_JAI(AcquisitionParameters &acq) {
                 lStreams[i] = OpenStream(lConnectionID, acq.debug);
                 if (lStreams[i] != nullptr) {
                     ConfigureStream(acq.lDevice, lStreams[i], i);
-//                    CreateStreamBuffers(acq.lDevice, lStreams[i], &acq.lBufferLists[i]);
                     acq.MyStreamInfos[i]->aStream = lStreams[i];
                     acq.MyStreamInfos[i]->stream_index = i;
                 } else
                     test_streaming = false;
             }
 
-//            acq.lDevice->StreamEnable();
             return test_streaming;
         }
         else
@@ -760,7 +751,6 @@ bool start_acquisition(AcquisitionParameters &acq) {
         acq.jai_t1 = thread(GrabThread, 1, ref(acq));
         acq.jai_t2 = thread(GrabThread, 2, ref(acq));
         acq.merge_t = thread(MergeThread, ref(acq));
-//        pthread_cond_wait(&acq.GrabEvent, &acq.acq_start_mtx);
     }
     else if (acq.debug)
         cout << "NOT CONNECTED" << endl;
@@ -862,6 +852,7 @@ void disconnect_jai(AcquisitionParameters &acq) {
         PvStream::Free(acq.MyStreamInfos[i]->aStream);
     }
     acq.lDevice->StreamDisable();
+
     // Disconnect the device
     cout << acq.jai_connected << endl;
     if (acq.jai_connected) {
