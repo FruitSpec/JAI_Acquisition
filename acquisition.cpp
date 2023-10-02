@@ -184,12 +184,14 @@ void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvStri
     lDeviceParams->SetFloatValue("ExposureAutoControlMax", auto_exposure_max);
     lDeviceParams->SetBooleanValue("ALCAreaEnableAll", false);
 
-    for (const PvString& alc_true_area : alc_true_areas) {
+    for (short i = 0; i < alc_true_areas.size(); i++) {
+        auto alc_true_area = alc_true_areas[i];
         lDeviceParams->SetEnumValue("ALCAreaSelector", alc_true_area);
         lDeviceParams->SetBooleanValue("ALCAreaEnable", true);
     }
 
-    for (const PvString& alc_false_area : alc_false_areas) {
+    for (short i = 0; i < alc_false_areas.size(); i++) {
+        auto alc_false_area = alc_false_areas[i];
         lDeviceParams->SetEnumValue("ALCAreaSelector", alc_false_area);
         lDeviceParams->SetBooleanValue("ALCAreaEnable", false);
     }
