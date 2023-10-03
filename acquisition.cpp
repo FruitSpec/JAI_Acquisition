@@ -119,53 +119,60 @@ void FreeStreamBuffers(BufferList *aBufferList) {
     aBufferList->clear();
 }
 
-VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, short exposure_975,
-                         const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
-                         bool output_rgb, bool output_800, bool output_975, bool output_svo, bool output_zed_gray,
-                         bool output_zed_depth, bool output_zed_pc, bool view, bool transfer_data,
-                         bool pass_clahe_stream, bool debug_mode, std::vector<string> alc_true_areas,
-                         std::vector<string> alc_false_areas) {
+VideoConfig * setup_acquisition(short exposure_rgb, short exposure_800, short exposure_975,
+                                bool transfer_data, std::vector<string> alc_true_areas,
+                                std::vector<string> alc_false_areas, bool debug_mode) {
     auto *video_conf = new VideoConfig;
 
-    video_conf->FPS = fps;
     video_conf->exposure_rgb = exposure_rgb;
     video_conf->exposure_800 = exposure_800;
     video_conf->exposure_975 = exposure_975;
-    video_conf->output_dir = output_dir;
-    video_conf->output_clahe_fsi = output_clahe_fsi;
-    video_conf->output_equalize_hist_fsi = output_equalize_hist_fsi;
-    video_conf->output_rgb = output_rgb;
-    video_conf->output_800 = output_800;
-    video_conf->output_975 = output_975;
-    video_conf->output_svo = output_svo;
-    video_conf->output_zed_gray = output_zed_gray;
-    video_conf->output_zed_depth = output_zed_depth;
-    video_conf->output_zed_pc = output_zed_pc;
-    video_conf->view = view;
     video_conf->transfer_data = transfer_data;
-    video_conf->pass_clahe_stream = pass_clahe_stream;
     video_conf->alc_true_areas = alc_true_areas;
     video_conf->alc_false_areas = alc_false_areas;
 
     if (debug_mode) {
-        std::cout << "FPS: " << video_conf->FPS << std::endl;
-        if (video_conf->view)
-            std::cout << "view mode: on" << std::endl;
-        else {
-            std::cout << "view mode: off" << std::endl;
-            std::cout << "output-clahe-fsi: " << std::boolalpha << video_conf->output_clahe_fsi << std::endl;
-            std::cout << "output-equalize-hist-fsi: " << std::boolalpha << video_conf->output_equalize_hist_fsi << std::endl;
-            std::cout << "output-rgb: " << std::boolalpha << video_conf->output_rgb << std::endl;
-            std::cout << "output-800: " << std::boolalpha << video_conf->output_800 << std::endl;
-            std::cout << "output-975: " << std::boolalpha << video_conf->output_975 << std::endl;
-            std::cout << "output-svo: " << std::boolalpha << video_conf->output_svo << std::endl;
-            std::cout << "output-zed-rgb: " << std::boolalpha << video_conf->output_zed_gray << std::endl;
-            std::cout << "output-zed-depth: " << std::boolalpha << video_conf->output_zed_depth << std::endl;
-            std::cout << "output-zed-point-cloud: " << std::boolalpha << video_conf->output_zed_pc << std::endl;
-            std::cout << "output-dir: " << std::boolalpha << video_conf->output_dir << std::endl;
-        }
+        std::cout << "JAI FPS: " << JAI_FPS << std::endl;
+        std::cout << "zed-fps: " << ZED_FPS << std::endl;
+        std::cout << "exposure-rgb: " << to_string(exposure_rgb) << end;
+        std::cout << "exposure-800: " << to_string(exposure_800) << endl;
+        std::cout << "exposure-975: " << to_string(exposure_975) << endl;
     }
     return video_conf;
+}
+
+RecordingConfig * setup_recording(const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
+                                  bool output_rgb, bool output_800, bool output_975, bool output_svo,
+                                  bool output_zed_gray, bool output_zed_depth, bool output_zed_pc,
+                                  bool pass_clahe_stream, bool debug_mode) {
+    auto *recording_conf = new RecordingConfig;
+
+    recording_conf->output_dir = output_dir;
+    recording_conf->output_clahe_fsi = output_clahe_fsi;
+    recording_conf->output_equalize_hist_fsi = output_equalize_hist_fsi;
+    recording_conf->output_rgb = output_rgb;
+    recording_conf->output_800 = output_800;
+    recording_conf->output_975 = output_975;
+    recording_conf->output_svo = output_svo;
+    recording_conf->output_zed_gray = output_zed_gray;
+    recording_conf->output_zed_depth = output_zed_depth;
+    recording_conf->output_zed_pc = output_zed_pc;
+    recording_conf->pass_clahe_stream = pass_clahe_stream;
+
+    if (debug_mode) {
+        std::cout << "output-clahe-fsi: " << std::boolalpha << recording_conf->output_clahe_fsi << std::endl;
+        std::cout << "output-equalize-hist-fsi: " << std::boolalpha << recording_conf->output_equalize_hist_fsi << std::endl;
+        std::cout << "output-rgb: " << std::boolalpha << recording_conf->output_rgb << std::endl;
+        std::cout << "output-800: " << std::boolalpha << recording_conf->output_800 << std::endl;
+        std::cout << "output-975: " << std::boolalpha << recording_conf->output_975 << std::endl;
+        std::cout << "output-svo: " << std::boolalpha << recording_conf->output_svo << std::endl;
+        std::cout << "output-zed-rgb: " << std::boolalpha << recording_conf->output_zed_gray << std::endl;
+        std::cout << "output-zed-depth: " << std::boolalpha << recording_conf->output_zed_depth << std::endl;
+        std::cout << "output-zed-point-cloud: " << std::boolalpha << recording_conf->output_zed_pc << std::endl;
+        std::cout << "output-dir: " << std::boolalpha << recording_conf->output_dir << std::endl;
+    }
+
+    return recording_conf;
 }
 
 void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvString& source, int auto_exposure_max,
@@ -204,7 +211,7 @@ void set_acquisition_parameters(AcquisitionParameters &acq) {
     set_parameters_per_source(lDeviceParams, source_2, acq.video_conf->exposure_975, mono,
                               acq.video_conf->alc_true_areas, acq.video_conf->alc_false_areas);
 
-    lDeviceParams->SetFloatValue("AcquisitionFrameRate", acq.video_conf->FPS);
+    lDeviceParams->SetFloatValue("AcquisitionFrameRate", JAI_FPS);
     lDeviceParams->GetIntegerValue("Width", acq.video_conf->width);
     lDeviceParams->GetIntegerValue("Height", acq.video_conf->height);
 }
@@ -243,29 +250,32 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
     bool is_exist = false;
     short file_index = 0;
     string f_fsi_clahe, f_fsi_equalize_hist, f_rgb, f_800, f_975, f_zed_rgb, f_zed_depth, f_zed_X, f_zed_Y, f_zed_Z;
-    string width_s, height_s, FPS_s, file_index_s;
+    string width_s, height_s, JAI_FPS_s, ZED_FPS_s, file_index_s;
     string frame_drop_log_path, imu_log_path, jai_acquisition_log_path;
     string zed_svo_filename;
 
-    acq.video_conf->file_index = - 1;
-    if (acq.video_conf->output_clahe_fsi or acq.video_conf->output_equalize_hist_fsi or acq.video_conf->output_rgb or acq.video_conf->output_800 or acq.video_conf->output_975)
+    JAI_FPS_s = to_string(JAI_FPS);
+    ZED_FPS_s = to_string(ZED_FPS);
+
+    acq.recording_conf->file_index = - 1;
+
+    if (acq.recording_conf->output_clahe_fsi or acq.recording_conf->output_equalize_hist_fsi or acq.recording_conf->output_rgb or acq.recording_conf->output_800 or acq.recording_conf->output_975)
     {
         width_s = to_string(acq.video_conf->width);
         height_s = to_string(acq.video_conf->height);
-        FPS_s = to_string(acq.video_conf->FPS);
 
-        acq.video_conf->file_index = file_index;
+        acq.recording_conf->file_index = file_index;
 
-        jai_acquisition_log_path = acq.video_conf->output_dir + "/jai_acquisition.log";
-        frame_drop_log_path = acq.video_conf->output_dir + "/frame_drop.log";
-        imu_log_path = acq.video_conf->output_dir + "/imu.log";
+        jai_acquisition_log_path = acq.recording_conf->output_dir + "/jai_acquisition.log";
+        frame_drop_log_path = acq.recording_conf->output_dir + "/frame_drop.log";
+        imu_log_path = acq.recording_conf->output_dir + "/imu.log";
 
         acq.jai_acquisition_log.open(jai_acquisition_log_path, ios_base::app);
         acq.frame_drop_log_file.open(frame_drop_log_path, ios_base::app);
         acq.imu_log_file.open(imu_log_path, ios_base::app);
 
         string gst_3c = "appsrc ! video/x-raw, format=BGR, width=(int)" + width_s + ", height=(int)" + height_s;
-        gst_3c += ", framerate=(fraction)" + FPS_s + "/1 ! queue ! videoconvert ! video/x-raw,format=BGRx ! nvvidconv !";
+        gst_3c += ", framerate=(fraction)" + JAI_FPS_s + "/1 ! queue ! videoconvert ! video/x-raw,format=BGRx ! nvvidconv !";
         gst_3c += "nvv4l2h265enc bitrate=15000000 ! h265parse ! matroskamux ! filesink location=";
 
         string gst_1c = "appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=";
@@ -274,56 +284,56 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
         cv::Size zed_frame_size(1920, 1080);
 
         int four_c = VideoWriter::fourcc('H', '2', '6', '5');
-        if (acq.video_conf->output_clahe_fsi) {
-            f_fsi_clahe = gs_sink_builder("FSI_CLAHE", acq.video_conf->output_dir);
+        if (acq.recording_conf->output_clahe_fsi) {
+            f_fsi_clahe = gs_sink_builder("FSI_CLAHE", acq.recording_conf->output_dir);
             string gs_clahe_fsi = gst_3c + f_fsi_clahe;
-            acq.mp4_clahe_FSI.open(gs_clahe_fsi, four_c, acq.video_conf->FPS, jai_frame_size);
+            acq.mp4_clahe_FSI.open(gs_clahe_fsi, four_c, JAI_FPS, jai_frame_size);
         }
-        if (acq.video_conf->output_equalize_hist_fsi) {
-            f_fsi_equalize_hist = gs_sink_builder("Result_FSI", acq.video_conf->output_dir);
+        if (acq.recording_conf->output_equalize_hist_fsi) {
+            f_fsi_equalize_hist = gs_sink_builder("Result_FSI", acq.recording_conf->output_dir);
             string gs_equalize_hist_fsi = gst_3c + f_fsi_equalize_hist;
-            acq.mp4_equalize_hist_FSI.open(gs_equalize_hist_fsi, four_c, acq.video_conf->FPS, jai_frame_size);
+            acq.mp4_equalize_hist_FSI.open(gs_equalize_hist_fsi, four_c, JAI_FPS, jai_frame_size);
         }
-        if (acq.video_conf->output_rgb) {
-            f_rgb = gs_sink_builder("Result_RGB", acq.video_conf->output_dir);
+        if (acq.recording_conf->output_rgb) {
+            f_rgb = gs_sink_builder("Result_RGB", acq.recording_conf->output_dir);
             string gs_rgb = gst_3c + f_rgb;
-            acq.mp4_BGR.open(gs_rgb, four_c, acq.video_conf->FPS, jai_frame_size);
+            acq.mp4_BGR.open(gs_rgb, four_c, JAI_FPS, jai_frame_size);
         }
-        if (acq.video_conf->output_800) {
-            f_800 = gs_sink_builder("Result_800", acq.video_conf->output_dir);
+        if (acq.recording_conf->output_800) {
+            f_800 = gs_sink_builder("Result_800", acq.recording_conf->output_dir);
             string gs_800 = gst_1c + f_800;
-            acq.mp4_800.open(gs_800, four_c, acq.video_conf->FPS, jai_frame_size, false);
+            acq.mp4_800.open(gs_800, four_c, JAI_FPS, jai_frame_size, false);
         }
-        if (acq.video_conf->output_975) {
-            f_975 = gs_sink_builder("Result_975", acq.video_conf->output_dir);
+        if (acq.recording_conf->output_975) {
+            f_975 = gs_sink_builder("Result_975", acq.recording_conf->output_dir);
             string gs_975 = gst_1c + f_975;
-            acq.mp4_975.open(gs_975, four_c, acq.video_conf->FPS, jai_frame_size, false);
+            acq.mp4_975.open(gs_975, four_c, JAI_FPS, jai_frame_size, false);
         }
-        if (acq.video_conf->output_svo) {
-            zed_svo_filename = (acq.video_conf->output_dir + string("/ZED.svo"));
+        if (acq.recording_conf->output_svo) {
+            zed_svo_filename = (acq.recording_conf->output_dir + string("/ZED.svo"));
             RecordingParameters params(zed_svo_filename.c_str(), SVO_COMPRESSION_MODE::H265);
             acq.zed.enableRecording(params);
         }
-        if (acq.video_conf->output_zed_gray) {
-            f_zed_rgb = gs_sink_builder("ZED", acq.video_conf->output_dir);
+        if (acq.recording_conf->output_zed_gray) {
+            f_zed_rgb = gs_sink_builder("ZED", acq.recording_conf->output_dir);
             string gs_zed_rgb = gst_1c + f_zed_rgb;
-            acq.mp4_zed_rgb.open(gs_zed_rgb, four_c, 15, zed_frame_size, false);
+            acq.mp4_zed_rgb.open(gs_zed_rgb, four_c, ZED_FPS_s, zed_frame_size, false);
         }
-        if (acq.video_conf->output_zed_depth) {
-            f_zed_depth = gs_sink_builder("DEPTH", acq.video_conf->output_dir);
+        if (acq.recording_conf->output_zed_depth) {
+            f_zed_depth = gs_sink_builder("DEPTH", acq.recording_conf->output_dir);
             string gs_zed_depth = gst_1c + f_zed_depth;
-            acq.mp4_zed_depth.open(gs_zed_depth, four_c, 15, zed_frame_size, false);
+            acq.mp4_zed_depth.open(gs_zed_depth, four_c, ZED_FPS_s, zed_frame_size, false);
         }
-        if (acq.video_conf->output_zed_pc){
-            f_zed_X = gs_sink_builder("ZED_X", acq.video_conf->output_dir);
-            f_zed_Y = gs_sink_builder("ZED_Y", acq.video_conf->output_dir);
-            f_zed_Z = gs_sink_builder("ZED_Z", acq.video_conf->output_dir);
+        if (acq.recording_conf->output_zed_pc){
+            f_zed_X = gs_sink_builder("ZED_X", acq.recording_conf->output_dir);
+            f_zed_Y = gs_sink_builder("ZED_Y", acq.recording_conf->output_dir);
+            f_zed_Z = gs_sink_builder("ZED_Z", acq.recording_conf->output_dir);
             string gs_zed_X = gst_1c + f_zed_X;
             string gs_zed_Y = gst_1c + f_zed_Y;
             string gs_zed_Z = gst_1c + f_zed_Z;
-            acq.mp4_zed_X.open(gs_zed_X, four_c, 15, zed_frame_size, false);
-            acq.mp4_zed_Y.open(gs_zed_Y, four_c, 15, zed_frame_size, false);
-            acq.mp4_zed_Z.open(gs_zed_Z, four_c, 15, zed_frame_size, false);
+            acq.mp4_zed_X.open(gs_zed_X, four_c, ZED_FPS, zed_frame_size, false);
+            acq.mp4_zed_Y.open(gs_zed_Y, four_c, ZED_FPS, zed_frame_size, false);
+            acq.mp4_zed_Z.open(gs_zed_Z, four_c, ZED_FPS, zed_frame_size, false);
         }
     }
 }
@@ -334,10 +344,10 @@ string gs_sink_builder(const string& output_type_name, const string& output_dir)
     return gs_loc;
 }
 
-bool connect_ZED(AcquisitionParameters &acq, int fps){
+bool connect_ZED(AcquisitionParameters &acq){
     InitParameters init_params;
     init_params.camera_resolution = RESOLUTION::HD1080; // Use HD1080 video mode
-    init_params.camera_fps = 15; // Set fps
+    init_params.camera_fps = ZED_FPS; // Set fps
     init_params.depth_mode = DEPTH_MODE::QUALITY;
     init_params.coordinate_units = UNIT::METER;
     init_params.depth_minimum_distance = 0.5f;
@@ -384,50 +394,52 @@ void ZedThread(AcquisitionParameters &acq) {
             acq.imu_log_file << imu.str() << endl << endl;
             acq.jz_streamer.push_zed(zed_frame);
         }
-        if (acq.video_conf->output_zed_gray) {
-            acq.zed.retrieveImage(zed_gpu_rgb, VIEW::LEFT, MEM::GPU);
-            auto rgb_ptr = zed_gpu_rgb.getPtr<sl::uchar1>(MEM::GPU);
-            auto rgb_step = zed_gpu_rgb.getStepBytes(MEM::GPU);
+        if (acq.is_recording) {
+            if (acq.recording_conf->output_zed_gray) {
+                acq.zed.retrieveImage(zed_gpu_rgb, VIEW::LEFT, MEM::GPU);
+                auto rgb_ptr = zed_gpu_rgb.getPtr<sl::uchar1>(MEM::GPU);
+                auto rgb_step = zed_gpu_rgb.getStepBytes(MEM::GPU);
 
-            cuda_gpu_rgb = cuda::GpuMat(height, width, CV_8UC4, rgb_ptr, rgb_step);
-            cv::cuda::cvtColor(cuda_gpu_rgb, cuda_gpu_gray, cv::COLOR_RGBA2GRAY, 0);
+                cuda_gpu_rgb = cuda::GpuMat(height, width, CV_8UC4, rgb_ptr, rgb_step);
+                cv::cuda::cvtColor(cuda_gpu_rgb, cuda_gpu_gray, cv::COLOR_RGBA2GRAY, 0);
 
-            cuda_gpu_gray.download(cuda_gray);
+                cuda_gpu_gray.download(cuda_gray);
 
-            acq.mp4_zed_rgb.write(cuda_gray);
-        }
-        if (acq.video_conf->output_zed_depth){
-            acq.zed.retrieveMeasure(zed_gpu_depth, MEASURE::DEPTH, MEM::GPU);
-            auto depth_ptr = zed_gpu_depth.getPtr<sl::uchar1>(MEM::GPU);
-            auto depth_step = zed_gpu_depth.getStepBytes(MEM::GPU);
-
-            cuda_gpu_depth = cuda::GpuMat(height, width, CV_32FC1, depth_ptr, depth_step);
-            cuda::min(cuda_gpu_depth, 8.0f, cuda_gpu_depth);
-            cv::cuda::multiply(cuda_gpu_depth, 255.0f / 8.0f, cuda_gpu_depth, 1, CV_32FC1);
-            cuda_gpu_depth.convertTo(cuda_gpu_depth, CV_8UC1);
-
-            cuda_gpu_depth.download(cuda_depth);
-
-            acq.mp4_zed_depth.write(cuda_depth);
-        }
-        if (acq.video_conf->output_zed_pc){
-            acq.zed.retrieveMeasure(zed_gpu_point_cloud, MEASURE::XYZ, MEM::GPU);
-
-            auto pc_ptr = zed_gpu_point_cloud.getPtr<sl::uchar1>(MEM::GPU);
-            auto pc_step = zed_gpu_point_cloud.getStepBytes(MEM::GPU);
-
-            cuda_gpu_point_cloud = cuda::GpuMat(height, width, CV_32FC3, pc_ptr, pc_step);
-            cv::cuda::split(cuda_gpu_point_cloud, cudaXYZ);
-            for (int i = 0; i < 3; i++) {
-                auto cuda_axis = cudaXYZ[i];
-                cuda::min(cuda_axis, 8.0f, cuda_axis);
-                cv::cuda::multiply(cuda_axis, 255.0f / 8.0f, cuda_axis, 1, CV_32FC1);
-                cuda_axis.convertTo(cuda_axis, CV_8UC1);
-                cuda_axis.download(cvXYZ[i]);
+                acq.mp4_zed_rgb.write(cuda_gray);
             }
-            acq.mp4_zed_X.write(cvXYZ[0]);
-            acq.mp4_zed_Y.write(cvXYZ[1]);
-            acq.mp4_zed_Z.write(cvXYZ[2]);
+            if (acq.recording_conf->output_zed_depth) {
+                acq.zed.retrieveMeasure(zed_gpu_depth, MEASURE::DEPTH, MEM::GPU);
+                auto depth_ptr = zed_gpu_depth.getPtr<sl::uchar1>(MEM::GPU);
+                auto depth_step = zed_gpu_depth.getStepBytes(MEM::GPU);
+
+                cuda_gpu_depth = cuda::GpuMat(height, width, CV_32FC1, depth_ptr, depth_step);
+                cuda::min(cuda_gpu_depth, 8.0f, cuda_gpu_depth);
+                cv::cuda::multiply(cuda_gpu_depth, 255.0f / 8.0f, cuda_gpu_depth, 1, CV_32FC1);
+                cuda_gpu_depth.convertTo(cuda_gpu_depth, CV_8UC1);
+
+                cuda_gpu_depth.download(cuda_depth);
+
+                acq.mp4_zed_depth.write(cuda_depth);
+            }
+            if (acq.recording_conf->output_zed_pc) {
+                acq.zed.retrieveMeasure(zed_gpu_point_cloud, MEASURE::XYZ, MEM::GPU);
+
+                auto pc_ptr = zed_gpu_point_cloud.getPtr<sl::uchar1>(MEM::GPU);
+                auto pc_step = zed_gpu_point_cloud.getStepBytes(MEM::GPU);
+
+                cuda_gpu_point_cloud = cuda::GpuMat(height, width, CV_32FC3, pc_ptr, pc_step);
+                cv::cuda::split(cuda_gpu_point_cloud, cudaXYZ);
+                for (int i = 0; i < 3; i++) {
+                    auto cuda_axis = cudaXYZ[i];
+                    cuda::min(cuda_axis, 8.0f, cuda_axis);
+                    cv::cuda::multiply(cuda_axis, 255.0f / 8.0f, cuda_axis, 1, CV_32FC1);
+                    cuda_axis.convertTo(cuda_axis, CV_8UC1);
+                    cuda_axis.download(cvXYZ[i]);
+                }
+                acq.mp4_zed_X.write(cvXYZ[0]);
+                acq.mp4_zed_Y.write(cvXYZ[1]);
+                acq.mp4_zed_Z.write(cvXYZ[2]);
+            }
         }
     }
 
@@ -619,29 +631,18 @@ void MergeThread(AcquisitionParameters &acq) {
         cudaFrames[1].upload(Frames[2]); // channel 2 = 975nm -> Green
 
         cv::cuda::demosaicing(cudaFrames[0], cudaFrames[0], cv::COLOR_BayerBG2BGR, -1);
-        if (acq.video_conf->output_rgb)
+        if (acq.is_recording and acq.recording_conf->output_rgb)
             cudaFrames[0].download(Frames[0]);
         cv::cuda::split(cudaFrames[0], cudaBGR);
         cudaFrames[0] = cudaBGR[2]; // just pick the blue from the bayer
         for (int i = 0; i < 3; i++) {
             cv::cuda::normalize(cudaFrames[i], cudaFrames[i], 0, 255, cv::NORM_MINMAX, CV_8U, noArray());
         }
-        if (acq.video_conf->output_800)
-            cudaFrames[2].download(Frames[1]);
-        if (acq.video_conf->output_975)
-            cudaFrames[1].download(Frames[2]);
-
-        if (acq.video_conf->output_equalize_hist_fsi or (not acq.video_conf->pass_clahe_stream)) {
-            for (int i = 0; i < 3; i++) {
-                cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
-            }
-            
-            cv::cuda::merge(cudaFrames_equalized, cudaFSI_equalized_hist);
-            cudaFSI_equalized_hist.download(res_equalize_hist_fsi);
-        }
-        if (acq.video_conf->output_clahe_fsi or acq.video_conf->pass_clahe_stream) {
-            fsi_from_channels(clahe, cudaFrames[0], cudaFrames[1], cudaFrames[2], cudaFSI_clahe);
-            cudaFSI_clahe.download(res_clahe_fsi);
+        if (acq.is_recording) {
+            if (acq.recording_conf->output_800)
+                cudaFrames[2].download(Frames[1]);
+            if (acq.recording_conf->output_975)
+                cudaFrames[1].download(Frames[2]);
         }
 
         string timestamp = e_frames[0]->timestamp;
@@ -650,33 +651,52 @@ void MergeThread(AcquisitionParameters &acq) {
         acq.jai_acquisition_log << s << endl;
 
         EnumeratedJAIFrame e_frame_fsi;
-        if (acq.video_conf->transfer_data) {
-            if (acq.video_conf->pass_clahe_stream) {
-                e_frame_fsi = {timestamp, res_clahe_fsi, Frames[0], BlockID};
-            } else {
-                e_frame_fsi = {timestamp, res_equalize_hist_fsi, Frames[0], BlockID};
-            }
+
+        bool produce_clahe_fsi = (acq.is_recording and acq.recording_conf->output_clahe)
+                or (acq.video_conf->transfer_data and acq.recording_conf->pass_clahe_stream)
+
+        bool produce_equalize_hist_fsi = (acq.is_recording and acq.recording_conf->output_equalize_hist_fsi)
+                or (acq.video_conf->transfer_data and (not acq.recording_conf->pass_clahe_stream))
+
+        if (produce_clahe_fsi) {
+            fsi_from_channels(clahe, cudaFrames[0], cudaFrames[1], cudaFrames[2], cudaFSI_clahe);
+            cudaFSI_clahe.download(res_clahe_fsi);
+            e_frame_fsi = {timestamp, res_clahe_fsi, Frames[0], BlockID};
         }
-        acq.jz_streamer.push_jai(e_frame_fsi);
+        if (produce_equalize_hist_fsi) {
+            for (int i = 0; i < 3; i++) {
+                cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i]);
+            }
+
+            cv::cuda::merge(cudaFrames_equalized, cudaFSI_equalized_hist);
+            cudaFSI_equalized_hist.download(res_equalize_hist_fsi);
+            e_frame_fsi = {timestamp, res_equalize_hist_fsi, Frames[0], BlockID};
+        }
+
+        if (acq.video_conf->transfer_data)
+            acq.jz_streamer.push_jai(e_frame_fsi);
+
 
         frame_count++;
-        if (frame_count % (acq.video_conf->FPS * 30) == 0 and acq.debug)
-            cout << endl << frame_count / (acq.video_conf->FPS * 60.0) << " minutes of video written" << endl << endl;
+        if (frame_count % (JAI_FPS * 30) == 0 and acq.debug)
+            cout << endl << frame_count / (JAI_FPS * 60.0) << " minutes of video written" << endl << endl;
 
-        if (acq.video_conf->output_clahe_fsi) {
-            acq.mp4_clahe_FSI.write(res_clahe_fsi);
-        }
-        if (acq.video_conf->output_equalize_hist_fsi) {
-            acq.mp4_equalize_hist_FSI.write(res_equalize_hist_fsi);
-        }
-        if (acq.video_conf->output_rgb) {
-            acq.mp4_BGR.write(Frames[0]);
-        }
-        if (acq.video_conf->output_800) {
-            acq.mp4_800.write(Frames[1]);
-        }
-        if (acq.video_conf->output_975) {
-            acq.mp4_975.write(Frames[2]);
+        if (acq.is_recording) {
+            if (acq.recording_conf->output_clahe_fsi) {
+                acq.mp4_clahe_FSI.write(res_clahe_fsi);
+            }
+            if (acq.recording_conf->output_equalize_hist_fsi) {
+                acq.mp4_equalize_hist_FSI.write(res_equalize_hist_fsi);
+            }
+            if (acq.recording_conf->output_rgb) {
+                acq.mp4_BGR.write(Frames[0]);
+            }
+            if (acq.recording_conf->output_800) {
+                acq.mp4_800.write(Frames[1]);
+            }
+            if (acq.recording_conf->output_975) {
+                acq.mp4_975.write(Frames[2]);
+            }
         }
     }
 
@@ -696,7 +716,7 @@ string get_current_time() {
     return ss_now.str();
 }
 
-JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps){
+JaiZedStatus connect_cameras(AcquisitionParameters &acq){
 
     pthread_cond_init(&acq.GrabEvent, nullptr);
     bool jai_connected = false, zed_connected = false;
@@ -705,7 +725,7 @@ JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps){
         if (not jai_connected)
             jai_connected = setup_JAI(acq);
         if (not zed_connected)
-            zed_connected = connect_ZED(acq, fps);
+            zed_connected = connect_ZED(acq);
         if (jai_connected and zed_connected)
             break;
         if (acq.debug) {
@@ -727,6 +747,11 @@ JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps){
     return jzs;
 }
 
+bool start_recording(AcquisitionParameters &acq){
+    MP4CreateFirstTime(acq);
+    acq.is_recording = true;
+}
+
 bool start_acquisition(AcquisitionParameters &acq) {
     PvGenParameterArray *lDeviceParams;
     PvGenCommand *lStart;
@@ -739,7 +764,9 @@ bool start_acquisition(AcquisitionParameters &acq) {
         acq.lDevice->StreamEnable();
 
         acq.is_running = true;
-        MP4CreateFirstTime(acq);
+        acq.is_recording = false;
+
+        // MP4CreateFirstTime(acq);
 
         // Get device parameters need to control streaming - set acquisition start command
         lDeviceParams = acq.lDevice->GetParameters();
@@ -755,6 +782,36 @@ bool start_acquisition(AcquisitionParameters &acq) {
     else if (acq.debug)
         cout << "NOT CONNECTED" << endl;
     return acq.is_running;
+}
+
+bool stop_recording(AcquisitionParameters &acq) {
+    acq.is_recording = false;
+
+    sleep(1);
+
+    if (acq.recording_conf->output_clahe_fsi)
+        acq.mp4_clahe_FSI.release();
+    if (acq.recording_conf->output_equalize_hist_fsi)
+        acq.mp4_equalize_hist_FSI.release();
+    if (acq.recording_conf->output_rgb)
+        acq.mp4_BGR.release();
+    if (acq.recording_conf->output_800)
+        acq.mp4_800.release();
+    if (acq.recording_conf->output_975)
+        acq.mp4_975.release();
+    if (acq.recording_conf->output_svo)
+        acq.zed.disableRecording();
+    if (acq.recording_conf->output_zed_gray) {
+        acq.mp4_zed_rgb.release();
+    }
+    if (acq.recording_conf->output_zed_depth) {
+        acq.mp4_zed_depth.release();
+    }
+    if (acq.recording_conf->output_zed_pc) {
+        acq.mp4_zed_X.release();
+        acq.mp4_zed_Y.release();
+        acq.mp4_zed_Z.release();
+    }
 }
 
 void stop_acquisition(AcquisitionParameters &acq) {
@@ -796,30 +853,6 @@ void stop_acquisition(AcquisitionParameters &acq) {
     acq.jai_acquisition_log.close();
     acq.frame_drop_log_file.close();
     acq.imu_log_file.close();
-
-    if (acq.video_conf->output_clahe_fsi)
-        acq.mp4_clahe_FSI.release();
-    if (acq.video_conf->output_equalize_hist_fsi)
-        acq.mp4_equalize_hist_FSI.release();
-    if (acq.video_conf->output_rgb)
-        acq.mp4_BGR.release();
-    if (acq.video_conf->output_800)
-        acq.mp4_800.release();
-    if (acq.video_conf->output_975)
-        acq.mp4_975.release();
-    if (acq.video_conf->output_svo)
-        acq.zed.disableRecording();
-    if (acq.video_conf->output_zed_gray) {
-        acq.mp4_zed_rgb.release();
-    }
-    if (acq.video_conf->output_zed_depth) {
-        acq.mp4_zed_depth.release();
-    }
-    if (acq.video_conf->output_zed_pc) {
-        acq.mp4_zed_X.release();
-        acq.mp4_zed_Y.release();
-        acq.mp4_zed_Z.release();
-    }
 
     // Tell the device to stop sending images + disable streaming
     acq.lDevice->StreamDisable();
