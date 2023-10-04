@@ -575,7 +575,7 @@ void MergeThread(AcquisitionParameters &acq) {
     cv::Mat Frames[3], res;
     cuda::GpuMat cudaFSI_clahe, cudaFSI_equalized_hist;
     std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3), cudaFrames_equalized(3);
-    int frame_count = 0;
+    int current_frame_count = 0;
     struct timespec max_wait = {0, 0};
     SingleJAIChannel *e_frames[3] = {new SingleJAIChannel, new SingleJAIChannel, new SingleJAIChannel};
     bool grabbed[3] = { false, false, false };
@@ -673,12 +673,10 @@ void MergeThread(AcquisitionParameters &acq) {
         if (acq.video_conf->transfer_data)
             acq.jz_streamer.push_jai(e_frame_fsi);
 
-
-        frame_count++;
-        if (frame_count % (JAI_FPS * 30) == 0 and acq.debug)
-            cout << endl << frame_count / (JAI_FPS * 60.0) << " minutes of video written" << endl << endl;
-
         if (acq.is_recording) {
+            if (++current_frame_count % (JAI_FPS * 30) == 0 and acq.debug)
+                cout << endl << current_frame_count / (JAI_FPS * 60.0) << " minutes of video written" << endl << endl;
+
             if (acq.recording_conf->output_clahe_fsi) {
                 acq.mp4_clahe_FSI.write(res_clahe_fsi);
             }
@@ -695,6 +693,8 @@ void MergeThread(AcquisitionParameters &acq) {
                 acq.mp4_975.write(Frames[2]);
             }
         }
+        else
+            current_frame_count = 0;
     }
 
     if (acq.debug)
@@ -747,6 +747,8 @@ JaiZedStatus connect_cameras(AcquisitionParameters &acq){
 bool start_recording(AcquisitionParameters &acq){
     MP4CreateFirstTime(acq);
     acq.is_recording = true;
+    if (acq.debug)
+        cout << "VIDEO RECORDING STARTED" << endl;
 }
 
 bool start_acquisition(AcquisitionParameters &acq) {
