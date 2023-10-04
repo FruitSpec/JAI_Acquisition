@@ -59,19 +59,19 @@ struct VideoConfig {
     int64_t width = 1536, height = 2048;
     std::vector<string> alc_true_areas, alc_false_areas;
     bool transfer_data;
+    bool pass_clahe_stream;
 };
 
 struct RecordingConfig {
     short file_index = -1;
     bool output_clahe_fsi, output_equalize_hist_fsi, output_rgb, output_800, output_975, output_svo;
     bool output_zed_gray, output_zed_depth, output_zed_pc;
-    bool pass_clahe_stream;
     string output_dir = string("/home/mic-730ai/Desktop/JAI_Results");
 };
 
 struct AcquisitionParameters {
     VideoConfig *video_conf;
-    RecordingConfig *record_conf;
+    RecordingConfig *recording_conf;
 
     StreamInfo *MyStreamInfos[3];
     PvDevice *lDevice = nullptr;
@@ -91,9 +91,7 @@ struct AcquisitionParameters {
     ofstream jai_acquisition_log;
 
     bool jai_connected, zed_connected, debug;
-    std::atomic<bool> is_running;
-    std::atomic<bool> is_recording;
-
+    std::atomic<bool> is_running, is_recording;
     JaiZedStream jz_streamer;
 };
 
@@ -110,13 +108,13 @@ void CreateStreamBuffers(PvDevice *&aDevice, PvStream *aStream, BufferList *aBuf
 void FreeStreamBuffers(BufferList *aBufferList);
 
 VideoConfig * setup_acquisition(short exposure_rgb, short exposure_800, short exposure_975,
-                                bool transfer_data, std::vector<string> alc_true_areas,
-                                std::vector<string> alc_false_areas, bool debug_mode);
+                                bool transfer_data, bool pass_clahe_stream, const std::vector<string>& alc_true_areas,
+                                const std::vector<string>& alc_false_areas, bool debug_mode);
 
 RecordingConfig * setup_recording(const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
                                 bool output_rgb, bool output_800, bool output_975, bool output_svo,
                                 bool output_zed_gray, bool output_zed_depth, bool output_zed_pc,
-                                bool pass_clahe_stream);
+                                bool debug_mode);
 
 void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvString& source, int auto_exposure_max,
                                const PvString &pixel_format);
@@ -145,7 +143,7 @@ bool start_acquisition(AcquisitionParameters &acq);
 
 bool start_recording(AcquisitionParameters &acq);
 
-void stop_recording(AcquisitionParameters &acq);
+bool stop_recording(AcquisitionParameters &acq);
 
 void stop_acquisition(AcquisitionParameters &acq);
 

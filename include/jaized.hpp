@@ -67,13 +67,13 @@ public:
     bool connect_zed_wrapper();
 
     bool start_acquisition_wrapper(short exposure_rgb, short exposure_800, short exposure_975,
-                                   bool transfer_data, std::vector<string> alc_true_areas,
-                                   std::vector<string> alc_false_areas);
+                                   bool transfer_data, bool pass_clahe_stream,
+                                   const std::vector<string>& alc_true_areas,
+                                   const std::vector<string>& alc_false_areas);
 
     bool start_recording_wrapper(const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
                                  bool output_rgb, bool output_800, bool output_975, bool output_svo,
-                                 bool output_zed_gray, bool output_zed_depth, bool output_zed_pc,
-                                 bool pass_clahe_stream);
+                                 bool output_zed_gray, bool output_zed_depth, bool output_zed_pc);
 
     bool is_running();
 
@@ -86,6 +86,8 @@ public:
     EnumeratedJAIFrameWrapper pop_jai_wrapper();
 
     EnumeratedZEDFrameWrapper pop_zed_wrapper();
+
+    void stop_recording_wrapper();
 
     void stop_acquisition_wrapper();
 

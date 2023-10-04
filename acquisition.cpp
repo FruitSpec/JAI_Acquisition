@@ -120,21 +120,22 @@ void FreeStreamBuffers(BufferList *aBufferList) {
 }
 
 VideoConfig * setup_acquisition(short exposure_rgb, short exposure_800, short exposure_975,
-                                bool transfer_data, std::vector<string> alc_true_areas,
-                                std::vector<string> alc_false_areas, bool debug_mode) {
+                                bool transfer_data, bool pass_clahe_stream, const std::vector<string>& alc_true_areas,
+                                const std::vector<string>& alc_false_areas, bool debug_mode) {
     auto *video_conf = new VideoConfig;
 
     video_conf->exposure_rgb = exposure_rgb;
     video_conf->exposure_800 = exposure_800;
     video_conf->exposure_975 = exposure_975;
     video_conf->transfer_data = transfer_data;
+    video_conf->pass_clahe_stream = pass_clahe_stream;
     video_conf->alc_true_areas = alc_true_areas;
     video_conf->alc_false_areas = alc_false_areas;
 
     if (debug_mode) {
         std::cout << "JAI FPS: " << JAI_FPS << std::endl;
         std::cout << "zed-fps: " << ZED_FPS << std::endl;
-        std::cout << "exposure-rgb: " << to_string(exposure_rgb) << end;
+        std::cout << "exposure-rgb: " << to_string(exposure_rgb) << endl;
         std::cout << "exposure-800: " << to_string(exposure_800) << endl;
         std::cout << "exposure-975: " << to_string(exposure_975) << endl;
     }
@@ -144,7 +145,7 @@ VideoConfig * setup_acquisition(short exposure_rgb, short exposure_800, short ex
 RecordingConfig * setup_recording(const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
                                   bool output_rgb, bool output_800, bool output_975, bool output_svo,
                                   bool output_zed_gray, bool output_zed_depth, bool output_zed_pc,
-                                  bool pass_clahe_stream, bool debug_mode) {
+                                  bool debug_mode) {
     auto *recording_conf = new RecordingConfig;
 
     recording_conf->output_dir = output_dir;
@@ -157,7 +158,6 @@ RecordingConfig * setup_recording(const string& output_dir, bool output_clahe_fs
     recording_conf->output_zed_gray = output_zed_gray;
     recording_conf->output_zed_depth = output_zed_depth;
     recording_conf->output_zed_pc = output_zed_pc;
-    recording_conf->pass_clahe_stream = pass_clahe_stream;
 
     if (debug_mode) {
         std::cout << "output-clahe-fsi: " << std::boolalpha << recording_conf->output_clahe_fsi << std::endl;
@@ -250,12 +250,9 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
     bool is_exist = false;
     short file_index = 0;
     string f_fsi_clahe, f_fsi_equalize_hist, f_rgb, f_800, f_975, f_zed_rgb, f_zed_depth, f_zed_X, f_zed_Y, f_zed_Z;
-    string width_s, height_s, JAI_FPS_s, ZED_FPS_s, file_index_s;
+    string width_s, height_s, file_index_s;
     string frame_drop_log_path, imu_log_path, jai_acquisition_log_path;
     string zed_svo_filename;
-
-    JAI_FPS_s = to_string(JAI_FPS);
-    ZED_FPS_s = to_string(ZED_FPS);
 
     acq.recording_conf->file_index = - 1;
 
@@ -275,7 +272,7 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
         acq.imu_log_file.open(imu_log_path, ios_base::app);
 
         string gst_3c = "appsrc ! video/x-raw, format=BGR, width=(int)" + width_s + ", height=(int)" + height_s;
-        gst_3c += ", framerate=(fraction)" + JAI_FPS_s + "/1 ! queue ! videoconvert ! video/x-raw,format=BGRx ! nvvidconv !";
+        gst_3c += ", framerate=(fraction)" + to_string(JAI_FPS) + "/1 ! queue ! videoconvert ! video/x-raw,format=BGRx ! nvvidconv !";
         gst_3c += "nvv4l2h265enc bitrate=15000000 ! h265parse ! matroskamux ! filesink location=";
 
         string gst_1c = "appsrc ! autovideoconvert ! omxh265enc ! matroskamux ! filesink location=";
@@ -317,12 +314,12 @@ void MP4CreateFirstTime(AcquisitionParameters &acq){
         if (acq.recording_conf->output_zed_gray) {
             f_zed_rgb = gs_sink_builder("ZED", acq.recording_conf->output_dir);
             string gs_zed_rgb = gst_1c + f_zed_rgb;
-            acq.mp4_zed_rgb.open(gs_zed_rgb, four_c, ZED_FPS_s, zed_frame_size, false);
+            acq.mp4_zed_rgb.open(gs_zed_rgb, four_c, ZED_FPS, zed_frame_size, false);
         }
         if (acq.recording_conf->output_zed_depth) {
             f_zed_depth = gs_sink_builder("DEPTH", acq.recording_conf->output_dir);
             string gs_zed_depth = gst_1c + f_zed_depth;
-            acq.mp4_zed_depth.open(gs_zed_depth, four_c, ZED_FPS_s, zed_frame_size, false);
+            acq.mp4_zed_depth.open(gs_zed_depth, four_c, ZED_FPS, zed_frame_size, false);
         }
         if (acq.recording_conf->output_zed_pc){
             f_zed_X = gs_sink_builder("ZED_X", acq.recording_conf->output_dir);
@@ -490,7 +487,8 @@ void GrabThread(int stream_index, AcquisitionParameters &acq) {
                     cout << stream_index << ": OPR - FAILURE" << endl;
             }
             // Re-queue the buffer in the stream object
-        } else if (acq.debug) {
+        }
+        else {
             acq.is_running = false;
             acq.jai_connected = false;
             if (acq.debug) {
@@ -581,7 +579,7 @@ void MergeThread(AcquisitionParameters &acq) {
     struct timespec max_wait = {0, 0};
     SingleJAIChannel *e_frames[3] = {new SingleJAIChannel, new SingleJAIChannel, new SingleJAIChannel};
     bool grabbed[3] = { false, false, false };
-
+    bool record_clahe, transfer_clahe;
     if (acq.debug)
         cout << "MERGE THREAD START" << endl;
     sleep(1);
@@ -621,7 +619,6 @@ void MergeThread(AcquisitionParameters &acq) {
             }
             continue;
         }
-
         cv::Mat res_clahe_fsi, res_equalize_hist_fsi;
         // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV refers to it as BayerBG
         // for more info look at - https://github.com/opencv/opencv/issues/19629
@@ -651,12 +648,12 @@ void MergeThread(AcquisitionParameters &acq) {
         acq.jai_acquisition_log << s << endl;
 
         EnumeratedJAIFrame e_frame_fsi;
-
-        bool produce_clahe_fsi = (acq.is_recording and acq.recording_conf->output_clahe)
-                or (acq.video_conf->transfer_data and acq.recording_conf->pass_clahe_stream)
+        bool produce_clahe_fsi = (acq.video_conf->transfer_data and acq.video_conf->pass_clahe_stream)
+                or (acq.is_recording and acq.recording_conf->output_clahe_fsi);
+        produce_clahe_fsi = transfer_clahe or record_clahe;
 
         bool produce_equalize_hist_fsi = (acq.is_recording and acq.recording_conf->output_equalize_hist_fsi)
-                or (acq.video_conf->transfer_data and (not acq.recording_conf->pass_clahe_stream))
+                or (acq.video_conf->transfer_data and (not acq.video_conf->pass_clahe_stream));
 
         if (produce_clahe_fsi) {
             fsi_from_channels(clahe, cudaFrames[0], cudaFrames[1], cudaFrames[2], cudaFSI_clahe);
@@ -765,8 +762,6 @@ bool start_acquisition(AcquisitionParameters &acq) {
 
         acq.is_running = true;
         acq.is_recording = false;
-
-        // MP4CreateFirstTime(acq);
 
         // Get device parameters need to control streaming - set acquisition start command
         lDeviceParams = acq.lDevice->GetParameters();
