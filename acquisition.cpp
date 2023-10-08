@@ -123,8 +123,8 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
                          const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
                          bool output_rgb, bool output_800, bool output_975, bool output_svo, bool output_zed_gray,
                          bool output_zed_depth, bool output_zed_pc, bool view, bool transfer_data,
-                         bool pass_clahe_stream, bool debug_mode, std::vector<PvString> alc_true_areas,
-                         std::vector<PvString> alc_false_areas) {
+                         bool pass_clahe_stream, bool debug_mode, std::vector<string> alc_true_areas,
+                         std::vector<string> alc_false_areas) {
     auto *video_conf = new VideoConfig;
 
     video_conf->FPS = fps;
@@ -169,8 +169,8 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
 }
 
 void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvString& source, int auto_exposure_max,
-                               const PvString &pixel_format, std::vector<PvString> alc_true_areas,
-                               std::vector<PvString> alc_false_areas){
+                               const PvString &pixel_format, std::vector<string> alc_true_areas,
+                               std::vector<string> alc_false_areas){
 //    const PvString alc_true_areas[4] = {"HighMidLeft", "LowMidLeft", "MidHighMidLeft", "MidLowMidLeft"};
 //    const PvString alc_false_areas[12] = {"HighRight", "HighMidRight", "HighLeft",
 //                                         "MidHighRight", "MidHighMidRight", "MidHighLeft",
@@ -185,13 +185,15 @@ void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvStri
     lDeviceParams->SetFloatValue("ExposureAutoControlMax", auto_exposure_max);
     lDeviceParams->SetBooleanValue("ALCAreaEnableAll", false);
 
-    for (const PvString& alc_true_area : alc_true_areas) {
-        lDeviceParams->SetEnumValue("ALCAreaSelector", alc_true_area);
+    for (const string& alc_true_area : alc_true_areas) {
+        PvString pv_alc_true_area = PvString(alc_true_area.c_str());
+        lDeviceParams->SetEnumValue("ALCAreaSelector", pv_alc_true_area);
         lDeviceParams->SetBooleanValue("ALCAreaEnable", true);
     }
 
-    for (const PvString& alc_false_area : alc_false_areas) {
-        lDeviceParams->SetEnumValue("ALCAreaSelector", alc_false_area);
+    for (const string& alc_false_area : alc_false_areas) {
+        PvString pv_alc_false_area = PvString(alc_false_area.c_str());
+        lDeviceParams->SetEnumValue("ALCAreaSelector", pv_alc_false_area);
         lDeviceParams->SetBooleanValue("ALCAreaEnable", false);
     }
 }
