@@ -579,6 +579,11 @@ void MergeThread(AcquisitionParameters &acq) {
     cuda::GpuMat cudaFSI_clahe, cudaFSI_equalized_hist;
     std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3), cudaFrames_equalized(3);
     cuda::Stream streams[3], stream_fsi_equalize_hist, stream_fsi_clahe;
+
+    std::string frame_name;
+    std::string frame_id;
+    std::string frame_temp = "/frame";
+
     int frame_count = 0;
     struct timespec max_wait = {0, 0};
     SingleJAIChannel *e_frames[3] = {new SingleJAIChannel, new SingleJAIChannel, new SingleJAIChannel};
@@ -629,6 +634,13 @@ void MergeThread(AcquisitionParameters &acq) {
         cv::Mat res_clahe_fsi, res_equalize_hist_fsi;
         // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV refers to it as BayerBG
         // for more info look at - https://github.com/opencv/opencv/issues/19629
+
+        frame_id = std::to_string(frame_count);
+        frame_name = acq.video_conf->output_dir + "/channel_800_" + frame_id + ".jpg";
+        cv::imwrite(frame_name, Frames[1]); //channel 800
+
+        frame_name = acq.video_conf->output_dir + "/channel_975_" + frame_id + ".jpg";
+        cv::imwrite(frame_name, Frames[2]); //channel 975
 
         cudaFrames[0].upload(Frames[0], streams[0]); // channel 0 = BayerBG8
         cudaFrames[2].upload(Frames[1], streams[2]); // channel 1 = 800nm -> Red
