@@ -17,13 +17,15 @@
 #include <PvStreamU3V.h>
 #include <PvBuffer.h>
 #include <PvBufferWriter.h>
-#include <list>
 #include <PvDisplayWnd.h>
+#include <list>
 #include <map>
 #include <iostream>
 #include <ctime>
 #include <cstdio>
 #include <thread>
+#include <atomic>
+#include <memory>
 #include <sl/Camera.hpp>
 #include <fstream>
 #include <mntent.h>
@@ -59,6 +61,8 @@ struct VideoConfig {
     bool transfer_data;
     bool pass_clahe_stream;
     string output_dir = string("/home/mic-730ai/Desktop/JAI_Results");
+    std::vector<string> alc_true_areas;
+    std::vector<string> alc_false_areas;
 };
 
 struct AcquisitionParameters {
@@ -74,7 +78,8 @@ struct AcquisitionParameters {
     pthread_mutex_t acq_start_mtx = PTHREAD_MUTEX_INITIALIZER;
     VideoWriter mp4_clahe_FSI, mp4_equalize_hist_FSI, mp4_BGR, mp4_800, mp4_975;
     VideoWriter mp4_zed_rgb, mp4_zed_depth, mp4_zed_X, mp4_zed_Y, mp4_zed_Z;
-    bool jai_connected, zed_connected, is_running, debug;
+    bool jai_connected, zed_connected, debug;
+    std::atomic<bool> is_running;
     ofstream frame_drop_log_file, imu_log_file;
     ofstream jai_acquisition_log;
     JaiZedStream jz_streamer;
@@ -96,7 +101,8 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
                          const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
                          bool output_rgb, bool output_800, bool output_975, bool output_svo, bool output_zed_gray,
                          bool output_zed_depth, bool output_zed_pc, bool view, bool transfer_data,
-                         bool pass_clahe_stream, bool debug_mode);
+                         bool pass_clahe_stream, bool debug_mode, std::vector<string> alc_true_areas,
+                         std::vector<string> alc_false_areas);
 
 void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvString& source, int auto_exposure_max,
                                const PvString &pixel_format);
