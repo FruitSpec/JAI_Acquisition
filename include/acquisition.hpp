@@ -56,7 +56,7 @@ struct VideoConfig {
     short file_index = -1;
     int64_t width = 1536, height = 2048;
     bool output_clahe_fsi, output_equalize_hist_fsi, output_rgb, output_800, output_975, output_svo;
-    bool output_zed_gray, output_zed_depth, output_zed_pc;
+    bool output_zed_gray, output_zed_depth, output_zed_pc, output_frames;
     bool view;
     bool transfer_data;
     bool pass_clahe_stream;
@@ -102,7 +102,7 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
                          bool output_rgb, bool output_800, bool output_975, bool output_svo, bool output_zed_gray,
                          bool output_zed_depth, bool output_zed_pc, bool view, bool transfer_data,
                          bool pass_clahe_stream, bool debug_mode, std::vector<string> alc_true_areas,
-                         std::vector<string> alc_false_areas);
+                         std::vector<string> alc_false_areas, bool output_frames);
 
 void set_parameters_per_source(PvGenParameterArray *&lDeviceParams, const PvString& source, int auto_exposure_max,
                                const PvString &pixel_format);

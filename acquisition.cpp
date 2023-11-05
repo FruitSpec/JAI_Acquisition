@@ -124,7 +124,7 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
                          bool output_rgb, bool output_800, bool output_975, bool output_svo, bool output_zed_gray,
                          bool output_zed_depth, bool output_zed_pc, bool view, bool transfer_data,
                          bool pass_clahe_stream, bool debug_mode, std::vector<string> alc_true_areas,
-                         std::vector<string> alc_false_areas) {
+                         std::vector<string> alc_false_areas, bool output_frames) {
     auto *video_conf = new VideoConfig;
 
     video_conf->FPS = fps;
@@ -146,6 +146,7 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
     video_conf->pass_clahe_stream = pass_clahe_stream;
     video_conf->alc_true_areas = alc_true_areas;
     video_conf->alc_false_areas = alc_false_areas;
+    video_conf->output_frames = output_frames;
 
     if (debug_mode) {
         std::cout << "FPS: " << video_conf->FPS << std::endl;
@@ -163,6 +164,7 @@ VideoConfig * parse_args(short fps, short exposure_rgb, short exposure_800, shor
             std::cout << "output-zed-depth: " << std::boolalpha << video_conf->output_zed_depth << std::endl;
             std::cout << "output-zed-point-cloud: " << std::boolalpha << video_conf->output_zed_pc << std::endl;
             std::cout << "output-dir: " << std::boolalpha << video_conf->output_dir << std::endl;
+            std::cout << "output_frames-dir: " << std::boolalpha << video_conf->output_frames << std::endl;
         }
     }
     return video_conf;
@@ -558,25 +560,24 @@ void stretch_and_clahe(cuda::GpuMat& channel, cuda::Stream &stream, const Ptr<cu
     clahe->apply(channel, channel, stream);
 }
 
-void fsi_from_channels(const cv::Ptr<cuda::CLAHE>& clahe, cuda::GpuMat& blue, cuda::Stream &stream_blue,
-                       cuda::GpuMat& c_800, cuda::Stream &stream_800, cuda::GpuMat& c_975, cuda::Stream &stream_975,
-                       cuda::GpuMat &fsi, cuda::Stream &stream_fsi, double lower = 0.005, double upper = 0.995,
-                       double min_int = 25, double max_int = 235) {
+void fsi_from_channels(const cv::Ptr<cuda::CLAHE>& clahe_800, cv::Ptr<cuda::CLAHE>& clahe_975, cuda::GpuMat& blue,
+                       cuda::Stream &stream_blue, cuda::GpuMat& c_975, cuda::Stream &stream_975, cuda::GpuMat& c_800,
+                       cuda::Stream &stream_800, cuda::GpuMat &fsi, cuda::Stream &stream_fsi) {
     
-    stretch_and_clahe(blue, stream_blue, clahe, lower, upper, min_int, max_int);
-    stretch_and_clahe(c_800, stream_800, clahe, lower, upper, min_int, max_int);
-    stretch_and_clahe(c_975, stream_975, clahe, lower, upper, min_int, max_int);
+    clahe_800->apply(c_800, c_800, stream_800);
+    clahe_975->apply(c_975, c_975, stream_975);
 
     std::vector<cv::cuda::GpuMat> channels;
-    
-    stream_blue.waitForCompletion();
+
     channels.push_back(blue);
-    
+
+    stream_975.waitForCompletion();
+    channels.push_back(c_975);
+
     stream_800.waitForCompletion();
     channels.push_back(c_800);
     
-    stream_975.waitForCompletion();
-    channels.push_back(c_975);
+
 
     cuda::merge(channels, fsi, stream_fsi);
 }
@@ -601,7 +602,8 @@ void MergeThread(AcquisitionParameters &acq) {
         cout << "MERGE THREAD START" << endl;
     sleep(1);
     pthread_cond_broadcast(&acq.GrabEvent);
-    cv::Ptr<cuda::CLAHE> clahe = cv::cuda::createCLAHE(2, cv::Size(10, 10));
+    cv::Ptr<cuda::CLAHE> clahe_800 = cv::cuda::createCLAHE(5, cv::Size(17, 17));
+    cv::Ptr<cuda::CLAHE> clahe_975 = cv::cuda::createCLAHE(10, cv::Size(17, 17));
     for (int frame_no = 0; acq.is_running; frame_no++) {
         for (int i = 0; i < 3; i++) {
             pthread_mutex_lock(&acq.grab_mtx);
@@ -640,13 +642,14 @@ void MergeThread(AcquisitionParameters &acq) {
         cv::Mat res_clahe_fsi, res_equalize_hist_fsi;
         // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV refers to it as BayerBG
         // for more info look at - https://github.com/opencv/opencv/issues/19629
+        if (acq.video_conf->output_frames) {
+            frame_id = std::to_string(frame_count);
+            frame_name = acq.video_conf->output_dir + "/channel_800_" + frame_id + ".jpg";
+            cv::imwrite(frame_name, Frames[1]); //channel 800
 
-        frame_id = std::to_string(frame_count);
-        frame_name = acq.video_conf->output_dir + "/channel_800_" + frame_id + ".jpg";
-        cv::imwrite(frame_name, Frames[1]); //channel 800
-
-        frame_name = acq.video_conf->output_dir + "/channel_975_" + frame_id + ".jpg";
-        cv::imwrite(frame_name, Frames[2]); //channel 975
+            frame_name = acq.video_conf->output_dir + "/channel_975_" + frame_id + ".jpg";
+            cv::imwrite(frame_name, Frames[2]); //channel 975
+        }
 
         cudaFrames[0].upload(Frames[0], streams[0]); // channel 0 = BayerBG8
         cudaFrames[2].upload(Frames[1], streams[2]); // channel 1 = 800nm -> Red
@@ -674,7 +677,7 @@ void MergeThread(AcquisitionParameters &acq) {
             cudaFSI_equalized_hist.download(res_equalize_hist_fsi, stream_fsi_equalize_hist);
         }
         if (acq.video_conf->output_clahe_fsi or acq.video_conf->pass_clahe_stream) {
-            fsi_from_channels(clahe, cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2], cudaFSI_clahe, stream_fsi_clahe);
+            fsi_from_channels(clahe_800, clahe_975, cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2], cudaFSI_clahe, stream_fsi_clahe);
             cudaFSI_clahe.download(res_clahe_fsi, stream_fsi_clahe);
         }
 

@@ -71,7 +71,8 @@ public:
                                    bool output_rgb, bool output_800, bool output_975, bool output_svo,
                                    bool output_zed_gray, bool output_zed_depth, bool output_zed_pc, bool view,
                                    bool transfer_data, bool pass_clahe_stream, bool debug_mode,
-                                   std::vector<string> alc_true_areas, std::vector<string> alc_false_areas);
+                                   std::vector<string> alc_true_areas, std::vector<string> alc_false_areas,
+                                   bool output_frame);
 
     bool jai_connected();
 
