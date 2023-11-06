@@ -582,6 +582,30 @@ void fsi_from_channels(const cv::Ptr<cuda::CLAHE>& clahe_800, cv::Ptr<cuda::CLAH
     cuda::merge(channels, fsi, stream_fsi);
 }
 
+void fsi_diff_from_channels(cuda::GpuMat& blue, cuda::Stream &stream_blue,
+                            cuda::GpuMat& c_975, cuda::Stream &stream_975,
+                            cuda::GpuMat& c_800, cuda::Stream &stream_800,
+                            cuda::GpuMat &fsi, cuda::Stream &stream_fsi) {
+
+    cv::cuda::subtract(c_800, c_975, c_800, noArray(), -1, stream_800);
+
+
+    cv::cuda::equalizeHist(c_800, c_800, stream_800);
+    cv::cuda::equalizeHist(c_975, c_975, stream_975);
+
+    std::vector<cv::cuda::GpuMat> channels;
+
+    channels.push_back(blue);
+
+    stream_975.waitForCompletion();
+    channels.push_back(c_975);
+
+    stream_800.waitForCompletion();
+    channels.push_back(c_800);
+
+    cuda::merge(channels, fsi, stream_fsi);
+}
+
 void MergeThread(AcquisitionParameters &acq) {
 
     cv::Mat Frames[3], res;
@@ -602,8 +626,8 @@ void MergeThread(AcquisitionParameters &acq) {
         cout << "MERGE THREAD START" << endl;
     sleep(1);
     pthread_cond_broadcast(&acq.GrabEvent);
-    cv::Ptr<cuda::CLAHE> clahe_800 = cv::cuda::createCLAHE(5, cv::Size(17, 17));
-    cv::Ptr<cuda::CLAHE> clahe_975 = cv::cuda::createCLAHE(10, cv::Size(17, 17));
+    cv::Ptr<cuda::CLAHE> clahe_800 = cv::cuda::createCLAHE(2., cv::Size(17, 17));
+    cv::Ptr<cuda::CLAHE> clahe_975 = cv::cuda::createCLAHE(3., cv::Size(17, 17));
     for (int frame_no = 0; acq.is_running; frame_no++) {
         for (int i = 0; i < 3; i++) {
             pthread_mutex_lock(&acq.grab_mtx);
@@ -677,7 +701,8 @@ void MergeThread(AcquisitionParameters &acq) {
             cudaFSI_equalized_hist.download(res_equalize_hist_fsi, stream_fsi_equalize_hist);
         }
         if (acq.video_conf->output_clahe_fsi or acq.video_conf->pass_clahe_stream) {
-            fsi_from_channels(clahe_800, clahe_975, cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2], cudaFSI_clahe, stream_fsi_clahe);
+            // fsi_from_channels(clahe_800, clahe_975, cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2], cudaFSI_clahe, stream_fsi_clahe);
+            fsi_diff_from_channels(cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2], cudaFSI_clahe, stream_fsi_clahe);
             cudaFSI_clahe.download(res_clahe_fsi, stream_fsi_clahe);
         }
 
