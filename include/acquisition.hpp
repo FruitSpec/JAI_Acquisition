@@ -30,6 +30,7 @@
 #include <fstream>
 #include <mntent.h>
 #include <dirent.h>
+#include <stdexcept>
 #include "streamer.hpp"
 
 

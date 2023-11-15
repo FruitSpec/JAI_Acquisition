@@ -360,151 +360,162 @@ bool connect_ZED(AcquisitionParameters &acq, int fps){
 }
 
 void ZedThread(AcquisitionParameters &acq) {
-    sl::SensorsData sensors_data;
-    sl::Mat zed_gpu_rgb, zed_gpu_depth, zed_gpu_point_cloud;
-    cv::cuda::GpuMat cuda_gpu_rgb, cuda_gpu_gray, cuda_gpu_depth, cuda_gpu_point_cloud;
-    cv::Mat cuda_gray, cuda_depth;
-    std::vector<cuda::GpuMat> cudaXYZ(3);
-    cv::Mat cvXYZ[3];
-    EnumeratedZEDFrame zed_frame;
-    cuda::Stream stream_rgb, stream_depth, stream_pc[3];
+    try {
+        sl::SensorsData sensors_data;
+        sl::Mat zed_gpu_rgb, zed_gpu_depth, zed_gpu_point_cloud;
+        cv::cuda::GpuMat cuda_gpu_rgb, cuda_gpu_gray, cuda_gpu_depth, cuda_gpu_point_cloud;
+        cv::Mat cuda_gray, cuda_depth;
+        std::vector<cuda::GpuMat> cudaXYZ(3);
+        cv::Mat cvXYZ[3];
+        EnumeratedZEDFrame zed_frame;
+        cuda::Stream stream_rgb, stream_depth, stream_pc[3];
 
-    bool first = true;
-    int width = 1920, height = 1080;
-    ERROR_CODE err;
+        bool first = true;
+        int width = 1920, height = 1080;
+        ERROR_CODE err;
 
-    if (acq.debug)
-        cout << "ZED THREAD STARTED" << endl;
+        if (acq.debug)
+            cout << "ZED THREAD STARTED" << endl;
 
-    for (int zed_frame_number = 0; acq.is_running; zed_frame_number++) {
-        err = acq.zed.grab();
-        zed_frame.timestamp = get_current_time();
-        if (err != ERROR_CODE::SUCCESS) {
-            if (acq.debug)
-                acq.frame_drop_log_file << "ZED FRAME DROP - FRAME NO. " << zed_frame_number << endl;
-        }
-        if (acq.video_conf->transfer_data) {
-            acq.zed.retrieveImage(zed_frame.rgb, VIEW::LEFT);
-            acq.zed.getSensorsData(sensors_data, TIME_REFERENCE::IMAGE);
-            acq.zed.retrieveMeasure(zed_frame.point_cloud, MEASURE::XYZ);
-            acq.zed.retrieveMeasure(zed_frame.depth, MEASURE::DEPTH);
-            zed_frame.BlockID = zed_frame_number;
-            zed_frame.imu = sensors_data.imu;
-            std::stringstream imu;
-            imu << get_current_time() << endl << zed_frame.imu.angular_velocity << endl
-                << zed_frame.imu.linear_acceleration;
-            acq.imu_log_file << imu.str() << endl << endl;
-            acq.jz_streamer.push_zed(zed_frame);
-        }
-        if (acq.video_conf->output_zed_gray) {
-            acq.zed.retrieveImage(zed_gpu_rgb, VIEW::LEFT, MEM::GPU);
-            auto rgb_ptr = zed_gpu_rgb.getPtr<sl::uchar1>(MEM::GPU);
-            auto rgb_step = zed_gpu_rgb.getStepBytes(MEM::GPU);
-
-            cuda_gpu_rgb = cuda::GpuMat(height, width, CV_8UC4, rgb_ptr, rgb_step);
-            cv::cuda::cvtColor(cuda_gpu_rgb, cuda_gpu_gray, cv::COLOR_RGBA2GRAY, 0, stream_rgb);
-
-            cuda_gpu_gray.download(cuda_gray, stream_rgb);
-
-            stream_rgb.waitForCompletion();
-            acq.mp4_zed_rgb.write(cuda_gray);
-        }
-        if (acq.video_conf->output_zed_depth){
-            acq.zed.retrieveMeasure(zed_gpu_depth, MEASURE::DEPTH, MEM::GPU);
-            auto depth_ptr = zed_gpu_depth.getPtr<sl::uchar1>(MEM::GPU);
-            auto depth_step = zed_gpu_depth.getStepBytes(MEM::GPU);
-
-            cuda_gpu_depth = cuda::GpuMat(height, width, CV_32FC1, depth_ptr, depth_step);
-            cuda::min(cuda_gpu_depth, 8.0f, cuda_gpu_depth, stream_depth);
-            cv::cuda::multiply(cuda_gpu_depth, 255.0f / 8.0f, cuda_gpu_depth, 1, CV_32FC1, stream_depth);
-            cuda_gpu_depth.convertTo(cuda_gpu_depth, CV_8UC1, stream_depth);
-
-            cuda_gpu_depth.download(cuda_depth, stream_depth);
-
-            stream_depth.waitForCompletion();
-            acq.mp4_zed_depth.write(cuda_depth);
-        }
-        if (acq.video_conf->output_zed_pc){
-            acq.zed.retrieveMeasure(zed_gpu_point_cloud, MEASURE::XYZ, MEM::GPU);
-
-            auto pc_ptr = zed_gpu_point_cloud.getPtr<sl::uchar1>(MEM::GPU);
-            auto pc_step = zed_gpu_point_cloud.getStepBytes(MEM::GPU);
-
-            cuda_gpu_point_cloud = cuda::GpuMat(height, width, CV_32FC3, pc_ptr, pc_step);
-            cv::cuda::split(cuda_gpu_point_cloud, cudaXYZ);
-            for (int i = 0; i < 3; i++) {
-                auto cuda_axis = cudaXYZ[i];
-                cuda::min(cuda_axis, 8.0f, cuda_axis, stream_pc[i]);
-                cv::cuda::multiply(cuda_axis, 255.0f / 8.0f, cuda_axis, 1, CV_32FC1, stream_pc[i]);
-                cuda_axis.convertTo(cuda_axis, CV_8UC1, stream_pc[i]);
-                cuda_axis.download(cvXYZ[i], stream_pc[i]);
+        for (int zed_frame_number = 0; acq.is_running; zed_frame_number++) {
+            err = acq.zed.grab();
+            zed_frame.timestamp = get_current_time();
+            if (err != ERROR_CODE::SUCCESS) {
+                if (acq.debug)
+                    acq.frame_drop_log_file << "ZED FRAME DROP - FRAME NO. " << zed_frame_number << endl;
             }
-            for (auto &spc : stream_pc) spc.waitForCompletion();
-            acq.mp4_zed_X.write(cvXYZ[0]);
-            acq.mp4_zed_Y.write(cvXYZ[1]);
-            acq.mp4_zed_Z.write(cvXYZ[2]);
-        }
-    }
+            if (acq.video_conf->transfer_data) {
+                acq.zed.retrieveImage(zed_frame.rgb, VIEW::LEFT);
+                acq.zed.getSensorsData(sensors_data, TIME_REFERENCE::IMAGE);
+                acq.zed.retrieveMeasure(zed_frame.point_cloud, MEASURE::XYZ);
+                acq.zed.retrieveMeasure(zed_frame.depth, MEASURE::DEPTH);
+                zed_frame.BlockID = zed_frame_number;
+                zed_frame.imu = sensors_data.imu;
+                std::stringstream imu;
+                imu << get_current_time() << endl << zed_frame.imu.angular_velocity << endl
+                    << zed_frame.imu.linear_acceleration;
+                acq.imu_log_file << imu.str() << endl << endl;
+                acq.jz_streamer.push_zed(zed_frame);
+            }
+            if (acq.video_conf->output_zed_gray) {
+                acq.zed.retrieveImage(zed_gpu_rgb, VIEW::LEFT, MEM::GPU);
+                auto rgb_ptr = zed_gpu_rgb.getPtr<sl::uchar1>(MEM::GPU);
+                auto rgb_step = zed_gpu_rgb.getStepBytes(MEM::GPU);
 
-    if (acq.debug)
-        cout << "ZedThread end" << endl;
+                cuda_gpu_rgb = cuda::GpuMat(height, width, CV_8UC4, rgb_ptr, rgb_step);
+                cv::cuda::cvtColor(cuda_gpu_rgb, cuda_gpu_gray, cv::COLOR_RGBA2GRAY, 0, stream_rgb);
+
+                cuda_gpu_gray.download(cuda_gray, stream_rgb);
+
+                stream_rgb.waitForCompletion();
+                acq.mp4_zed_rgb.write(cuda_gray);
+            }
+            if (acq.video_conf->output_zed_depth){
+                acq.zed.retrieveMeasure(zed_gpu_depth, MEASURE::DEPTH, MEM::GPU);
+                auto depth_ptr = zed_gpu_depth.getPtr<sl::uchar1>(MEM::GPU);
+                auto depth_step = zed_gpu_depth.getStepBytes(MEM::GPU);
+
+                cuda_gpu_depth = cuda::GpuMat(height, width, CV_32FC1, depth_ptr, depth_step);
+                cuda::min(cuda_gpu_depth, 8.0f, cuda_gpu_depth, stream_depth);
+                cv::cuda::multiply(cuda_gpu_depth, 255.0f / 8.0f, cuda_gpu_depth, 1, CV_32FC1, stream_depth);
+                cuda_gpu_depth.convertTo(cuda_gpu_depth, CV_8UC1, stream_depth);
+
+                cuda_gpu_depth.download(cuda_depth, stream_depth);
+
+                stream_depth.waitForCompletion();
+                acq.mp4_zed_depth.write(cuda_depth);
+            }
+            if (acq.video_conf->output_zed_pc){
+                acq.zed.retrieveMeasure(zed_gpu_point_cloud, MEASURE::XYZ, MEM::GPU);
+
+                auto pc_ptr = zed_gpu_point_cloud.getPtr<sl::uchar1>(MEM::GPU);
+                auto pc_step = zed_gpu_point_cloud.getStepBytes(MEM::GPU);
+
+                cuda_gpu_point_cloud = cuda::GpuMat(height, width, CV_32FC3, pc_ptr, pc_step);
+                cv::cuda::split(cuda_gpu_point_cloud, cudaXYZ);
+                for (int i = 0; i < 3; i++) {
+                    auto cuda_axis = cudaXYZ[i];
+                    cuda::min(cuda_axis, 8.0f, cuda_axis, stream_pc[i]);
+                    cv::cuda::multiply(cuda_axis, 255.0f / 8.0f, cuda_axis, 1, CV_32FC1, stream_pc[i]);
+                    cuda_axis.convertTo(cuda_axis, CV_8UC1, stream_pc[i]);
+                    cuda_axis.download(cvXYZ[i], stream_pc[i]);
+                }
+                for (auto &spc : stream_pc) spc.waitForCompletion();
+                acq.mp4_zed_X.write(cvXYZ[0]);
+                acq.mp4_zed_Y.write(cvXYZ[1]);
+                acq.mp4_zed_Z.write(cvXYZ[2]);
+            }
+        }
+
+        if (acq.debug)
+            cout << "ZedThread end" << endl;
+    } catch (const std::exception& e) {
+        std::cerr << "UNHANDLED EXCEPTION: " << e.what() << std::endl;
+        throw;
+    }
 }
 
 void GrabThread(int stream_index, AcquisitionParameters &acq) {
-    StreamInfo *MyStreamInfo = acq.MyStreamInfos[stream_index];
-    auto *lStream = (PvStream *) (MyStreamInfo->aStream);
-    PvResult lResult, lOperationResult;
-    uint64_t CurrentBlockID = 0, PrevBlockID = 0;
-    int height, width;
+    try {
+        StreamInfo *MyStreamInfo = acq.MyStreamInfos[stream_index];
+        auto *lStream = (PvStream *) (MyStreamInfo->aStream);
+        PvResult lResult, lOperationResult;
+        uint64_t CurrentBlockID = 0, PrevBlockID = 0;
+        int height, width;
 
-    pthread_mutex_lock(&acq.acq_start_mtx);
-    pthread_cond_wait(&acq.GrabEvent, &acq.acq_start_mtx);
-    pthread_mutex_unlock(&acq.acq_start_mtx);
-    if (acq.debug)
-        cout << "JAI STREAM " << stream_index << " STARTED" << endl;
-    short cv_bit_depth = CV_8U;
-    while (acq.is_running) {
-        PvBuffer *lBuffer = nullptr;
-        auto *curr_frame = new SingleJAIChannel;
-        lResult = lStream->RetrieveBuffer(&lBuffer, &lOperationResult, 1000);
-        curr_frame->timestamp = get_current_time();
-        if (lResult.IsOK()) {
-            if (lOperationResult.IsOK()) {
-                // We now have a valid buffer. This is where you would typically process the buffer.
+        pthread_mutex_lock(&acq.acq_start_mtx);
+        pthread_cond_wait(&acq.GrabEvent, &acq.acq_start_mtx);
+        pthread_mutex_unlock(&acq.acq_start_mtx);
+        if (acq.debug)
+            cout << "JAI STREAM " << stream_index << " STARTED" << endl;
+        short cv_bit_depth = CV_8U;
+        while (acq.is_running) {
+            PvBuffer *lBuffer = nullptr;
+            auto *curr_frame = new SingleJAIChannel;
+            lResult = lStream->RetrieveBuffer(&lBuffer, &lOperationResult, 1000);
+            curr_frame->timestamp = get_current_time();
+            if (lResult.IsOK()) {
+                if (lOperationResult.IsOK()) {
+                    // We now have a valid buffer. This is where you would typically process the buffer.
 
-                CurrentBlockID = lBuffer->GetBlockID();
-                if (CurrentBlockID != PrevBlockID + 1 and PrevBlockID != 0) {
-                    acq.frame_drop_log_file << "JAI STREAM " << stream_index << " - FRAME DROP - FRAME No. " << PrevBlockID << endl;
+                    CurrentBlockID = lBuffer->GetBlockID();
+                    if (CurrentBlockID != PrevBlockID + 1 and PrevBlockID != 0) {
+                        acq.frame_drop_log_file << "JAI STREAM " << stream_index << " - FRAME DROP - FRAME No. "
+                                                << PrevBlockID << endl;
+                    }
+                    PrevBlockID = CurrentBlockID;
+                    height = lBuffer->GetImage()->GetHeight(), width = lBuffer->GetImage()->GetWidth();
+                    lStream->QueueBuffer(lBuffer);
+                    curr_frame->frame = cv::Mat(height, width, cv_bit_depth, lBuffer->GetImage()->GetDataPointer());
+                    curr_frame->BlockID = CurrentBlockID;
+                    pthread_mutex_lock(&acq.grab_mtx);
+                    string s = "JAI STREAM" + to_string(stream_index) + " - PUSH FRAME " + to_string(CurrentBlockID);
+                    acq.jai_acquisition_log << s << endl;
+                    MyStreamInfo->Frames.push(curr_frame);
+                    pthread_cond_signal(&acq.MergeFramesEvent[stream_index]);
+                    pthread_mutex_unlock(&acq.grab_mtx);
+                } else {
+                    lStream->QueueBuffer(lBuffer);
+                    if (acq.debug)
+                        cout << stream_index << ": OPR - FAILURE" << endl;
                 }
-                PrevBlockID = CurrentBlockID;
-                height = lBuffer->GetImage()->GetHeight(), width = lBuffer->GetImage()->GetWidth();
-                lStream->QueueBuffer(lBuffer);
-                curr_frame->frame = cv::Mat(height, width, cv_bit_depth, lBuffer->GetImage()->GetDataPointer());
-                curr_frame->BlockID = CurrentBlockID;
-                pthread_mutex_lock(&acq.grab_mtx);
-                string s = "JAI STREAM" + to_string(stream_index) + " - PUSH FRAME " + to_string(CurrentBlockID);
-                acq.jai_acquisition_log << s << endl;
-                MyStreamInfo->Frames.push(curr_frame);
-                pthread_cond_signal(&acq.MergeFramesEvent[stream_index]);
-                pthread_mutex_unlock(&acq.grab_mtx);
-            } else {
-                lStream->QueueBuffer(lBuffer);
-                if (acq.debug)
-                    cout << stream_index << ": OPR - FAILURE" << endl;
-            }
-            // Re-queue the buffer in the stream object
-        } else if (acq.debug) {
-            acq.is_running = false;
-            acq.jai_connected = false;
-            if (acq.debug) {
-                cout << stream_index << ": BAD RESULT!" << endl;
-                // Retrieve buffer failure
-                cout << lResult.GetCodeString().GetAscii() << "\n";
+                // Re-queue the buffer in the stream object
+            } else if (acq.debug) {
+                acq.is_running = false;
+                acq.jai_connected = false;
+                if (acq.debug) {
+                    cout << stream_index << ": BAD RESULT!" << endl;
+                    // Retrieve buffer failure
+                    cout << lResult.GetCodeString().GetAscii() << "\n";
+                }
             }
         }
+        if (acq.debug)
+            cout << stream_index << ": Acquisition end with " << CurrentBlockID << endl;
+    } catch (const std::exception& e) {
+        std::cerr << "UNHANDLED EXCEPTION: " << e.what() << std::endl;
+        throw;
     }
-    if (acq.debug)
-        cout << stream_index << ": Acquisition end with " << CurrentBlockID << endl;
 }
 
 void stretch(cuda::GpuMat& channel, cuda::Stream &stream, double lower = 0.005, double upper = 0.995, double min_int = 25, double max_int = 235) {
@@ -615,150 +626,155 @@ void fsi_diff_from_channels(cuda::GpuMat& blue, cuda::Stream &stream_blue,
 }
 
 void MergeThread(AcquisitionParameters &acq) {
+    try {
+        cv::Mat Frames[3], res;
+        cuda::GpuMat cudaFSI_clahe, cudaFSI_equalized_hist;
+        std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3), cudaFrames_equalized(3);
+        cuda::Stream streams[3], stream_fsi_equalize_hist, stream_fsi_clahe;
 
-    cv::Mat Frames[3], res;
-    cuda::GpuMat cudaFSI_clahe, cudaFSI_equalized_hist;
-    std::vector<cuda::GpuMat> cudaBGR(3), cudaFrames(3), cudaFrames_equalized(3);
-    cuda::Stream streams[3], stream_fsi_equalize_hist, stream_fsi_clahe;
+        std::string frame_name;
+        std::string frame_id;
+        std::string frame_temp = "/frame";
 
-    std::string frame_name;
-    std::string frame_id;
-    std::string frame_temp = "/frame";
+        int frame_count = 0;
+        struct timespec max_wait = {0, 0};
+        SingleJAIChannel *e_frames[3] = {new SingleJAIChannel, new SingleJAIChannel, new SingleJAIChannel};
+        bool grabbed[3] = { false, false, false };
 
-    int frame_count = 0;
-    struct timespec max_wait = {0, 0};
-    SingleJAIChannel *e_frames[3] = {new SingleJAIChannel, new SingleJAIChannel, new SingleJAIChannel};
-    bool grabbed[3] = { false, false, false };
-
-    if (acq.debug)
-        cout << "MERGE THREAD START" << endl;
-    sleep(1);
-    pthread_cond_broadcast(&acq.GrabEvent);
-    cv::Ptr<cuda::CLAHE> clahe_800 = cv::cuda::createCLAHE(2., cv::Size(17, 17));
-    cv::Ptr<cuda::CLAHE> clahe_975 = cv::cuda::createCLAHE(3., cv::Size(17, 17));
-    for (int frame_no = 0; acq.is_running; frame_no++) {
-        for (int i = 0; i < 3; i++) {
-            pthread_mutex_lock(&acq.grab_mtx);
-            while (acq.MyStreamInfos[i]->Frames.empty() and !grabbed[i] and acq.is_running) {
-                clock_gettime(CLOCK_REALTIME, &max_wait);
-                max_wait.tv_sec += 1;
-                const int timed_wait_rv = pthread_cond_timedwait(&acq.MergeFramesEvent[i], &acq.grab_mtx, &max_wait);
+        if (acq.debug)
+            cout << "MERGE THREAD START" << endl;
+        sleep(1);
+        pthread_cond_broadcast(&acq.GrabEvent);
+        cv::Ptr<cuda::CLAHE> clahe_800 = cv::cuda::createCLAHE(2., cv::Size(17, 17));
+        cv::Ptr<cuda::CLAHE> clahe_975 = cv::cuda::createCLAHE(3., cv::Size(17, 17));
+        for (int frame_no = 0; acq.is_running; frame_no++) {
+            for (int i = 0; i < 3; i++) {
+                pthread_mutex_lock(&acq.grab_mtx);
+                while (acq.MyStreamInfos[i]->Frames.empty() and !grabbed[i] and acq.is_running) {
+                    clock_gettime(CLOCK_REALTIME, &max_wait);
+                    max_wait.tv_sec += 1;
+                    const int timed_wait_rv = pthread_cond_timedwait(&acq.MergeFramesEvent[i], &acq.grab_mtx, &max_wait);
+                }
+                if (!acq.is_running) {
+                    pthread_mutex_unlock(&acq.grab_mtx);
+                    break;
+                }
+                if (!grabbed[i]) {
+                    e_frames[i] = acq.MyStreamInfos[i]->Frames.front();
+                    Frames[i] = e_frames[i]->frame;
+                    acq.MyStreamInfos[i]->Frames.pop();
+                    string s = "MERGE POP FRAME " + to_string(e_frames[i]->BlockID) + " FROM STREAM " + to_string(i);
+                    acq.jai_acquisition_log << s << endl;
+                }
+                grabbed[i] = false;
+                pthread_mutex_unlock(&acq.grab_mtx);
             }
             if (!acq.is_running) {
-                pthread_mutex_unlock(&acq.grab_mtx);
                 break;
             }
-            if (!grabbed[i]) {
-                e_frames[i] = acq.MyStreamInfos[i]->Frames.front();
-                Frames[i] = e_frames[i]->frame;
-                acq.MyStreamInfos[i]->Frames.pop();
-                string s = "MERGE POP FRAME " + to_string(e_frames[i]->BlockID) + " FROM STREAM " + to_string(i);
-                acq.jai_acquisition_log << s << endl;
+            if (e_frames[0]->BlockID != e_frames[1]->BlockID or e_frames[0]->BlockID != e_frames[2]->BlockID) {
+                int max_id = std::max({e_frames[0]->BlockID, e_frames[1]->BlockID, e_frames[2]->BlockID});
+                acq.frame_drop_log_file << "MERGE DROP - AFTER FRAME NO. " << --frame_no << endl;
+                for (int i = 0; i < 3; i++) {
+                    if (e_frames[i]->BlockID == max_id)
+                        grabbed[i] = true;
+                }
+                continue;
             }
-            grabbed[i] = false;
-            pthread_mutex_unlock(&acq.grab_mtx);
-        }
-        if (!acq.is_running) {
-            break;
-        }
-        if (e_frames[0]->BlockID != e_frames[1]->BlockID or e_frames[0]->BlockID != e_frames[2]->BlockID) {
-            int max_id = std::max({e_frames[0]->BlockID, e_frames[1]->BlockID, e_frames[2]->BlockID});
-            acq.frame_drop_log_file << "MERGE DROP - AFTER FRAME NO. " << --frame_no << endl;
+
+            cv::Mat res_clahe_fsi, res_equalize_hist_fsi;
+            // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV refers to it as BayerBG
+            // for more info look at - https://github.com/opencv/opencv/issues/19629
+            if (acq.video_conf->output_frames) {
+                frame_id = std::to_string(frame_count);
+                frame_name = acq.video_conf->output_dir + "/channel_800_" + frame_id + ".jpg";
+                cv::imwrite(frame_name, Frames[1]); //channel 800
+
+                frame_name = acq.video_conf->output_dir + "/channel_975_" + frame_id + ".jpg";
+                cv::imwrite(frame_name, Frames[2]); //channel 975
+            }
+
+            cudaFrames[0].upload(Frames[0], streams[0]); // channel 0 = BayerBG8
+            cudaFrames[2].upload(Frames[1], streams[2]); // channel 1 = 800nm -> Red
+            cudaFrames[1].upload(Frames[2], streams[1]); // channel 2 = 975nm -> Green
+
+            cv::cuda::demosaicing(cudaFrames[0], cudaFrames[0], cv::COLOR_BayerBG2BGR, -1, streams[0]);
+            if (acq.video_conf->output_rgb)
+                cudaFrames[0].download(Frames[0], streams[0]);
+            cv::cuda::split(cudaFrames[0], cudaBGR, streams[0]);
+            cudaFrames[0] = cudaBGR[2]; // just pick the blue from the bayer
             for (int i = 0; i < 3; i++) {
-                if (e_frames[i]->BlockID == max_id)
-                    grabbed[i] = true;
+                cv::cuda::normalize(cudaFrames[i], cudaFrames[i], 0, 255, cv::NORM_MINMAX, CV_8U, noArray(), streams[i]);
             }
-            continue;
-        }
+            if (acq.video_conf->output_800)
+                cudaFrames[2].download(Frames[1], streams[2]);
+            if (acq.video_conf->output_975)
+                cudaFrames[1].download(Frames[2], streams[1]);
 
-        cv::Mat res_clahe_fsi, res_equalize_hist_fsi;
-        // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV refers to it as BayerBG
-        // for more info look at - https://github.com/opencv/opencv/issues/19629
-        if (acq.video_conf->output_frames) {
-            frame_id = std::to_string(frame_count);
-            frame_name = acq.video_conf->output_dir + "/channel_800_" + frame_id + ".jpg";
-            cv::imwrite(frame_name, Frames[1]); //channel 800
+            if (acq.video_conf->output_equalize_hist_fsi or (not acq.video_conf->pass_clahe_stream)) {
+                for (int i = 0; i < 3; i++) {
+                    cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i], streams[i]);
+                }
 
-            frame_name = acq.video_conf->output_dir + "/channel_975_" + frame_id + ".jpg";
-            cv::imwrite(frame_name, Frames[2]); //channel 975
-        }
-
-        cudaFrames[0].upload(Frames[0], streams[0]); // channel 0 = BayerBG8
-        cudaFrames[2].upload(Frames[1], streams[2]); // channel 1 = 800nm -> Red
-        cudaFrames[1].upload(Frames[2], streams[1]); // channel 2 = 975nm -> Green
-
-        cv::cuda::demosaicing(cudaFrames[0], cudaFrames[0], cv::COLOR_BayerBG2BGR, -1, streams[0]);
-        if (acq.video_conf->output_rgb)
-            cudaFrames[0].download(Frames[0], streams[0]);
-        cv::cuda::split(cudaFrames[0], cudaBGR, streams[0]);
-        cudaFrames[0] = cudaBGR[2]; // just pick the blue from the bayer
-        for (int i = 0; i < 3; i++) {
-            cv::cuda::normalize(cudaFrames[i], cudaFrames[i], 0, 255, cv::NORM_MINMAX, CV_8U, noArray(), streams[i]);
-        }
-        if (acq.video_conf->output_800)
-            cudaFrames[2].download(Frames[1], streams[2]);
-        if (acq.video_conf->output_975)
-            cudaFrames[1].download(Frames[2], streams[1]);
-
-        if (acq.video_conf->output_equalize_hist_fsi or (not acq.video_conf->pass_clahe_stream)) {
-            for (int i = 0; i < 3; i++) {
-                cv::cuda::equalizeHist(cudaFrames[i], cudaFrames_equalized[i], streams[i]);
+                cv::cuda::merge(cudaFrames_equalized, cudaFSI_equalized_hist, stream_fsi_equalize_hist);
+                cudaFSI_equalized_hist.download(res_equalize_hist_fsi, stream_fsi_equalize_hist);
             }
-            
-            cv::cuda::merge(cudaFrames_equalized, cudaFSI_equalized_hist, stream_fsi_equalize_hist);
-            cudaFSI_equalized_hist.download(res_equalize_hist_fsi, stream_fsi_equalize_hist);
-        }
-        if (acq.video_conf->output_clahe_fsi or acq.video_conf->pass_clahe_stream) {
-            // fsi_from_channels(clahe_800, clahe_975, cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2], cudaFSI_clahe, stream_fsi_clahe);
-            fsi_diff_from_channels(cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2], cudaFSI_clahe, stream_fsi_clahe);
-            cudaFSI_clahe.download(res_clahe_fsi, stream_fsi_clahe);
-        }
+            if (acq.video_conf->output_clahe_fsi or acq.video_conf->pass_clahe_stream) {
+                // fsi_from_channels(clahe_800, clahe_975, cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2], cudaFSI_clahe, stream_fsi_clahe);
+                fsi_diff_from_channels(cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2], cudaFSI_clahe, stream_fsi_clahe);
+                cudaFSI_clahe.download(res_clahe_fsi, stream_fsi_clahe);
+            }
 
-        string timestamp = e_frames[0]->timestamp;
-        int BlockID = e_frames[0]->BlockID;
-        string s = "MERGE SYNC FRAME " + to_string(e_frames[0]->BlockID);
-        acq.jai_acquisition_log << s << endl;
+            string timestamp = e_frames[0]->timestamp;
+            int BlockID = e_frames[0]->BlockID;
+            string s = "MERGE SYNC FRAME " + to_string(e_frames[0]->BlockID);
+            acq.jai_acquisition_log << s << endl;
 
-        EnumeratedJAIFrame e_frame_fsi;
-        if (acq.video_conf->transfer_data) {
-            if (acq.video_conf->pass_clahe_stream) {
+            EnumeratedJAIFrame e_frame_fsi;
+            if (acq.video_conf->transfer_data) {
+                if (acq.video_conf->pass_clahe_stream) {
+                    stream_fsi_clahe.waitForCompletion();
+                    e_frame_fsi = {timestamp, res_clahe_fsi, Frames[0], BlockID};
+                } else {
+                    stream_fsi_equalize_hist.waitForCompletion();
+                    e_frame_fsi = {timestamp, res_equalize_hist_fsi, Frames[0], BlockID};
+                }
+            }
+            acq.jz_streamer.push_jai(e_frame_fsi);
+
+            frame_count++;
+            if (frame_count % (acq.video_conf->FPS * 30) == 0 and acq.debug)
+                cout << endl << frame_count / (acq.video_conf->FPS * 60.0) << " minutes of video written" << endl << endl;
+
+            if (acq.video_conf->output_clahe_fsi) {
                 stream_fsi_clahe.waitForCompletion();
-                e_frame_fsi = {timestamp, res_clahe_fsi, Frames[0], BlockID};
-            } else {
+                acq.mp4_clahe_FSI.write(res_clahe_fsi);
+            }
+            if (acq.video_conf->output_equalize_hist_fsi) {
                 stream_fsi_equalize_hist.waitForCompletion();
-                e_frame_fsi = {timestamp, res_equalize_hist_fsi, Frames[0], BlockID};
+                acq.mp4_equalize_hist_FSI.write(res_equalize_hist_fsi);
+            }
+            if (acq.video_conf->output_rgb) {
+                streams[0].waitForCompletion();
+                acq.mp4_BGR.write(Frames[0]);
+            }
+            if (acq.video_conf->output_800) {
+                streams[2].waitForCompletion();
+                acq.mp4_800.write(Frames[1]);
+            }
+            if (acq.video_conf->output_975) {
+                streams[1].waitForCompletion();
+                acq.mp4_975.write(Frames[2]);
             }
         }
-        acq.jz_streamer.push_jai(e_frame_fsi);
 
-        frame_count++;
-        if (frame_count % (acq.video_conf->FPS * 30) == 0 and acq.debug)
-            cout << endl << frame_count / (acq.video_conf->FPS * 60.0) << " minutes of video written" << endl << endl;
-
-        if (acq.video_conf->output_clahe_fsi) {
-            stream_fsi_clahe.waitForCompletion();
-            acq.mp4_clahe_FSI.write(res_clahe_fsi);
-        }
-        if (acq.video_conf->output_equalize_hist_fsi) {
-            stream_fsi_equalize_hist.waitForCompletion();
-            acq.mp4_equalize_hist_FSI.write(res_equalize_hist_fsi);
-        }
-        if (acq.video_conf->output_rgb) {
-            streams[0].waitForCompletion();
-            acq.mp4_BGR.write(Frames[0]);
-        }
-        if (acq.video_conf->output_800) {
-            streams[2].waitForCompletion();
-            acq.mp4_800.write(Frames[1]);
-        }
-        if (acq.video_conf->output_975) {
-            streams[1].waitForCompletion();
-            acq.mp4_975.write(Frames[2]);
-        }
+        if (acq.debug)
+            cout << "MergeThread end" << endl;
+    } catch (const std::exception& e) {
+        std::cerr << "UNHANDLED EXCEPTION: " << e.what() << std::endl;
+        throw;
     }
 
-    if (acq.debug)
-        cout << "MergeThread end" << endl;
 
 }
 
@@ -805,33 +821,39 @@ JaiZedStatus connect_cameras(AcquisitionParameters &acq, int fps){
 }
 
 bool start_acquisition(AcquisitionParameters &acq) {
-    PvGenParameterArray *lDeviceParams;
-    PvGenCommand *lStart;
+    try {
+        PvGenParameterArray *lDeviceParams;
+        PvGenCommand *lStart;
 
-    if (acq.jai_connected and acq.zed_connected) {
-        set_acquisition_parameters(acq);
-        for (int i = 0; i < 3; i++) {
-            CreateStreamBuffers(acq.lDevice, acq.MyStreamInfos[i]->aStream, &acq.lBufferLists[i]);
-        }
-        acq.lDevice->StreamEnable();
+        if (acq.jai_connected and acq.zed_connected) {
+            set_acquisition_parameters(acq);
+            for (int i = 0; i < 3; i++) {
+                CreateStreamBuffers(acq.lDevice, acq.MyStreamInfos[i]->aStream, &acq.lBufferLists[i]);
+            }
+            acq.lDevice->StreamEnable();
 
-        acq.is_running = true;
-        MP4CreateFirstTime(acq);
+            acq.is_running = true;
+            MP4CreateFirstTime(acq);
 
-        // Get device parameters need to control streaming - set acquisition start command
-        lDeviceParams = acq.lDevice->GetParameters();
-        lStart = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStart"));
+            // Get device parameters need to control streaming - set acquisition start command
+            lDeviceParams = acq.lDevice->GetParameters();
+            lStart = dynamic_cast<PvGenCommand *>(lDeviceParams->Get("AcquisitionStart"));
 
-        acq.zed_t = thread(ZedThread, ref(acq));
-        lStart->Execute();
-        acq.jai_t0 = thread(GrabThread, 0, ref(acq));
-        acq.jai_t1 = thread(GrabThread, 1, ref(acq));
-        acq.jai_t2 = thread(GrabThread, 2, ref(acq));
-        acq.merge_t = thread(MergeThread, ref(acq));
-//        pthread_cond_wait(&acq.GrabEvent, &acq.acq_start_mtx);
+            acq.zed_t = thread(ZedThread, ref(acq));
+            lStart->Execute();
+            acq.jai_t0 = thread(GrabThread, 0, ref(acq));
+            acq.jai_t1 = thread(GrabThread, 1, ref(acq));
+            acq.jai_t2 = thread(GrabThread, 2, ref(acq));
+            acq.merge_t = thread(MergeThread, ref(acq));
+            //        pthread_cond_wait(&acq.GrabEvent, &acq.acq_start_mtx);
+        } else if (acq.debug)
+            cout << "NOT CONNECTED" << endl;
+    } catch (const std::exception& e) {
+         std::cerr << "Caught exception: " << e.what() << std::endl;
+
+         throw;
     }
-    else if (acq.debug)
-        cout << "NOT CONNECTED" << endl;
+
     return acq.is_running;
 }
 
