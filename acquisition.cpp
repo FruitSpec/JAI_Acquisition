@@ -594,15 +594,23 @@ void fsi_diff_from_channels(cuda::GpuMat& blue, cuda::Stream &stream_blue,
                             cuda::GpuMat& c_800, cuda::Stream &stream_800,
                             cuda::GpuMat &fsi, cuda::Stream &stream_fsi) {
 
-    cv::cuda::subtract(c_800, c_975, c_800, noArray(), -1, stream_800);
+    double factor = 2;
 
+    cuda::GpuMat factorized_c_975;
+    cuda::GpuMat factorized_blue;
+
+    cv::cuda::divide(blue, factor, factorized_blue, 1, -1, stream_blue);
+
+    cv::cuda::divide(c_975, factor, factorized_c_975, 1, -1, stream_800);
+    cv::cuda::subtract(c_800, factorized_c_975, c_800, noArray(), -1, stream_800);
 
     cv::cuda::equalizeHist(c_800, c_800, stream_800);
     cv::cuda::equalizeHist(c_975, c_975, stream_975);
 
     std::vector<cv::cuda::GpuMat> channels;
 
-    channels.push_back(blue);
+    stream_blue.waitForCompletion();
+    channels.push_back(factorized_blue);
 
     stream_975.waitForCompletion();
     channels.push_back(c_975);
