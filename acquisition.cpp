@@ -720,7 +720,7 @@ void MergeThread(AcquisitionParameters &acq) {
         EnumeratedJAIFrame e_frame_fsi;
         bool produce_clahe_fsi = (acq.video_conf->transfer_data and acq.video_conf->pass_clahe_stream)
                 or (acq.is_recording and acq.recording_conf->output_clahe_fsi);
-        produce_clahe_fsi = transfer_clahe or record_clahe;
+        //produce_clahe_fsi = transfer_clahe or record_clahe;
 
         bool produce_equalize_hist_fsi = (acq.is_recording and acq.recording_conf->output_equalize_hist_fsi)
                 or (acq.video_conf->transfer_data and (not acq.video_conf->pass_clahe_stream));
