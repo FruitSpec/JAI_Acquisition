@@ -144,7 +144,7 @@ VideoConfig * setup_acquisition(short exposure_rgb, short exposure_800, short ex
 
 RecordingConfig * setup_recording(const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
                                   bool output_rgb, bool output_800, bool output_975, bool output_svo,
-                                  bool output_zed_gray, bool output_zed_depth, bool output_zed_pc, bool output_frames
+                                  bool output_zed_gray, bool output_zed_depth, bool output_zed_pc, bool output_frames,
                                   bool debug_mode) {
     auto *recording_conf = new RecordingConfig;
 
@@ -676,11 +676,11 @@ void MergeThread(AcquisitionParameters &acq) {
         // the actual bayer format we use is RGGB (or - BayerRG) but OpenCV refers to it as BayerBG
         // for more info look at - https://github.com/opencv/opencv/issues/19629
         if (acq.is_recording and acq.recording_conf->output_frames) {
-            frame_id = std::to_string(frame_count);
-            frame_name = acq.video_conf->output_dir + "/channel_800_" + frame_id + ".jpg";
+            frame_id = std::to_string(current_frame_count);
+            frame_name = acq.recording_conf->output_dir + "/channel_800_" + frame_id + ".jpg";
             cv::imwrite(frame_name, Frames[1]); //channel 800
 
-            frame_name = acq.video_conf->output_dir + "/channel_975_" + frame_id + ".jpg";
+            frame_name = acq.recording_conf->output_dir + "/channel_975_" + frame_id + ".jpg";
             cv::imwrite(frame_name, Frames[2]); //channel 975
         }
 
@@ -719,7 +719,7 @@ void MergeThread(AcquisitionParameters &acq) {
 
         if (produce_clahe_fsi) {
             fsi_diff_from_channels(cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2],
-                                   cudaFSI_clahe, stream_fsi_clahe)
+                                   cudaFSI_clahe, stream_fsi_clahe);
             //fsi_from_channels(clahe, cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2], cudaFSI_clahe, stream_fsi_clahe);
             cudaFSI_clahe.download(res_clahe_fsi);
             stream_fsi_clahe.waitForCompletion();
