@@ -567,7 +567,7 @@ void stretch_and_clahe(cuda::GpuMat& channel, cuda::Stream &stream, const Ptr<cu
     clahe->apply(channel, channel, stream);
 }
 
-void fsi_from_channels(const cv::Ptr<cuda::CLAHE>& clahe_800, cv::Ptr<cuda::CLAHE>& clahe_975, cuda::GpuMat& blue,
+void fsi_from_channels_old(const cv::Ptr<cuda::CLAHE>& clahe_800, cv::Ptr<cuda::CLAHE>& clahe_975, cuda::GpuMat& blue,
                        cuda::Stream &stream_blue, cuda::GpuMat& c_975, cuda::Stream &stream_975, cuda::GpuMat& c_800,
                        cuda::Stream &stream_800, cuda::GpuMat &fsi, cuda::Stream &stream_fsi) {
     
@@ -589,20 +589,16 @@ void fsi_from_channels(const cv::Ptr<cuda::CLAHE>& clahe_800, cv::Ptr<cuda::CLAH
     cuda::merge(channels, fsi, stream_fsi);
 }
 
-void fsi_diff_from_channels(cuda::GpuMat& blue, cuda::Stream &stream_blue,
+void fsi_from_channels(cuda::GpuMat& blue, cuda::Stream &stream_blue,
                             cuda::GpuMat& c_975, cuda::Stream &stream_975,
                             cuda::GpuMat& c_800, cuda::Stream &stream_800,
                             cuda::GpuMat &fsi, cuda::Stream &stream_fsi) {
 
     double factor = 2;
 
-    cuda::GpuMat factorized_c_975;
     cuda::GpuMat factorized_blue;
 
     cv::cuda::divide(blue, factor, factorized_blue, 1, -1, stream_blue);
-
-    cv::cuda::divide(c_975, factor, factorized_c_975, 1, -1, stream_800);
-    cv::cuda::subtract(c_800, factorized_c_975, c_800, noArray(), -1, stream_800);
 
     cv::cuda::equalizeHist(c_800, c_800, stream_800);
     cv::cuda::equalizeHist(c_975, c_975, stream_975);
@@ -726,7 +722,7 @@ void MergeThread(AcquisitionParameters &acq) {
                 or (acq.video_conf->transfer_data and (not acq.video_conf->pass_clahe_stream));
 
         if (produce_clahe_fsi) {
-            fsi_diff_from_channels(cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2],
+            fsi_from_channels(cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2],
                                    cudaFSI_clahe, stream_fsi_clahe);
             //fsi_from_channels(clahe, cudaFrames[0], streams[0], cudaFrames[1], streams[1], cudaFrames[2], streams[2], cudaFSI_clahe, stream_fsi_clahe);
             cudaFSI_clahe.download(res_clahe_fsi);
