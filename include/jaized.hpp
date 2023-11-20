@@ -60,28 +60,34 @@ private:
 class JaiZed {
 public:
 
-    py::tuple connect_cameras_wrapper(short fps, bool debug_mode);
+    py::tuple connect_cameras_wrapper(bool debug_mode);
 
     bool connect_jai_wrapper();
 
-    bool connect_zed_wrapper(short fps);
+    bool connect_zed_wrapper();
 
-    bool start_acquisition_wrapper(short fps, short exposure_rgb, short exposure_800, short exposure_975,
-                                   const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
-                                   bool output_rgb, bool output_800, bool output_975, bool output_svo,
-                                   bool output_zed_gray, bool output_zed_depth, bool output_zed_pc, bool view,
-                                   bool transfer_data, bool pass_clahe_stream, bool debug_mode,
-                                   std::vector<string> alc_true_areas, std::vector<string> alc_false_areas);
+    bool start_acquisition_wrapper(short exposure_rgb, short exposure_800, short exposure_975,
+                                   bool transfer_data, bool pass_clahe_stream,
+                                   const std::vector<string>& alc_true_areas,
+                                   const std::vector<string>& alc_false_areas);
+
+    bool start_recording_wrapper(const string& output_dir, bool output_clahe_fsi, bool output_equalize_hist_fsi,
+                                 bool output_rgb, bool output_800, bool output_975, bool output_svo,
+                                 bool output_zed_gray, bool output_zed_depth, bool output_zed_pc, bool output_frames);
+
+    bool is_running();
+
+    bool is_recording();
 
     bool jai_connected();
 
     bool zed_connected();
 
-    bool is_running();
-
     EnumeratedJAIFrameWrapper pop_jai_wrapper();
 
     EnumeratedZEDFrameWrapper pop_zed_wrapper();
+
+    void stop_recording_wrapper();
 
     void stop_acquisition_wrapper();
 
